@@ -1,0 +1,22 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Personal Productivity API",
+    "version": "0.1.0-alpha"
+  },
+  "paths": {
+    "/tasks": {
+      "get": {},
+      "post": {}
+    },
+    "/tasks/{id}": {
+      "patch": {}
+    },
+    "/recommendations/next": {
+      "get": {}
+    },
+    "/health": {
+      "get": {}
+    }
+  }
+}

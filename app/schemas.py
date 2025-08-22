@@ -1,0 +1,48 @@
+
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
+from datetime import datetime
+
+Status = Literal["inbox","todo","doing","done"]
+
+class TaskBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    size: Optional[Literal["xs","s","m","l","xl"]] = None
+    effort_minutes: Optional[int] = None
+    hard_due_at: Optional[datetime] = None
+    soft_due_at: Optional[datetime] = None
+    energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
+
+class TaskCreate(TaskBase):
+    tags: List[str] = []
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[Status] = None
+    sort_order: Optional[float] = None
+    tags: Optional[List[str]] = None
+    size: Optional[Literal["xs","s","m","l","xl"]] = None
+    effort_minutes: Optional[int] = None
+    hard_due_at: Optional[datetime] = None
+    soft_due_at: Optional[datetime] = None
+    energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
+
+class TaskOut(BaseModel):
+    id: str
+    title: str
+    status: Status
+    sort_order: float
+    tags: List[str] = []
+    effort_minutes: Optional[int] = None
+    hard_due_at: Optional[datetime] = None
+    soft_due_at: Optional[datetime] = None
+
+class RecommendationItem(BaseModel):
+    task: TaskOut
+    score: float
+    factors: dict
+
+class RecommendationResponse(BaseModel):
+    items: List[RecommendationItem]
