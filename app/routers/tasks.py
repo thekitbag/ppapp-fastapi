@@ -25,7 +25,9 @@ def create_task(payload: schemas.TaskCreate, db: Session = Depends(get_db)):
     return schemas.TaskOut(
         id=task.id, title=task.title, status=task.status.value, sort_order=task.sort_order,
         tags=[t.name for t in task.tags], effort_minutes=task.effort_minutes,
-        hard_due_at=task.hard_due_at, soft_due_at=task.soft_due_at
+        hard_due_at=task.hard_due_at, soft_due_at=task.soft_due_at,
+        created_at=task.created_at, updated_at=task.updated_at 
+
     )
 
 @router.get("", response_model=List[schemas.TaskOut])
@@ -35,7 +37,8 @@ def list_tasks(db: Session = Depends(get_db)):
         schemas.TaskOut(
             id=t.id, title=t.title, status=t.status.value, sort_order=t.sort_order,
             tags=[tag.name for tag in t.tags], effort_minutes=t.effort_minutes,
-            hard_due_at=t.hard_due_at, soft_due_at=t.soft_due_at
+            hard_due_at=t.hard_due_at, soft_due_at=t.soft_due_at,
+            created_at=t.created_at, updated_at=t.updated_at
         ) for t in tasks
     ]
 
@@ -49,5 +52,7 @@ def patch_task(task_id: str, payload: schemas.TaskUpdate, db: Session = Depends(
     return schemas.TaskOut(
         id=updated.id, title=updated.title, status=updated.status.value, sort_order=updated.sort_order,
         tags=[tag.name for tag in updated.tags], effort_minutes=updated.effort_minutes,
-        hard_due_at=updated.hard_due_at, soft_due_at=updated.soft_due_at
+        hard_due_at=updated.hard_due_at, soft_due_at=updated.soft_due_at,
+        created_at=task.created_at, updated_at=task.updated_at 
+
     )

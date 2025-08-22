@@ -38,6 +38,8 @@ class TaskOut(BaseModel):
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
+    created_at: datetime           
+    updated_at: datetime 
 
 class RecommendationItem(BaseModel):
     task: TaskOut
