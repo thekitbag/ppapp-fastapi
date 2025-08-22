@@ -1,0 +1,8 @@
+git checkout -b chore/gitignore-cleanup
+cp .gitignore .
+git rm --cached -r app.db .DS_Store || true
+git add .gitignore
+git commit -m "chore(gitignore): ignore local DB and OS files"
+git push -u origin chore/gitignore-cleanup
+# Create PR:
+# gh pr create -t "chore(gitignore): ignore local DB and OS files" -b "Ignore app.db, .DS_Store and other local artifacts; remove tracked DB file" -B master -H chore/gitignore-cleanup

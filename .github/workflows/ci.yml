@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  backend-ci:
+    name: Backend (alembic + tests)
+    runs-on: ubuntu-latest
+
+    # Make the repo root importable as `app.*` for Alembic & tests
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Core deps
+          python -m pip install -r requirements.txt
+          # Test deps (safe if already present)
+          python -m pip install pytest pytest-cov httpx freezegun factory_boy faker
+
+      - name: Show environment (debug)
+        run: |
+          python -V
+          python -c "import sys; print('PYTHONPATH:', sys.path)"
+          python -c "import fastapi, sqlalchemy; print('FastAPI', fastapi.__version__, 'SQLAlchemy', sqlalchemy.__version__)"
+
+      - name: Alembic upgrade (create/update DB)
+        run: |
+          # Ensure we run from repo root where alembic.ini expects sqlite:///./app.db
+          alembic upgrade head
+          # Optional sanity: show alembic heads to ensure a single head
+          alembic heads
+
+      - name: Run tests
+        run: |
+          # Scope to tests/ to avoid wandering into system dirs
+          python -m pytest -q tests
