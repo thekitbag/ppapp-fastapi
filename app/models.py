@@ -15,10 +15,15 @@ task_tags = Table(
 )
 
 class StatusEnum(str, enum.Enum):
-    inbox = "inbox"
-    todo = "todo"
+    backlog = "backlog"
     doing = "doing"
     done = "done"
+    week = "week"
+    today = "today"
+    waiting = "waiting"
+
+
+
 
 class SizeEnum(str, enum.Enum):
     xs="xs"; s="s"; m="m"; l="l"; xl="xl"
@@ -32,7 +37,7 @@ class Task(Base):
     id = Column(String, primary_key=True)
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
-    status = Column(Enum(StatusEnum), default=StatusEnum.inbox, nullable=False)
+    status = Column(Enum(StatusEnum), default=StatusEnum.backlog, nullable=False)
     size = Column(Enum(SizeEnum), nullable=True)
     effort_minutes = Column(Integer, nullable=True)
     hard_due_at = Column(DateTime, nullable=True)

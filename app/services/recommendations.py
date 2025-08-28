@@ -13,7 +13,10 @@ from app import models
 # Break ties by sort_order (ascending)
 # Normalize to 0..100
 
-MAX_RAW = 10 + 5 + 2  # 17
+def _max_raw(weights: dict) -> int:
+    # weights example: {'status_boost':10, 'due_proximity':5, 'goal_align':2}
+    return sum(weights.values())
+
 
 @dataclass
 class Factor:
@@ -79,23 +82,41 @@ def _why_from_factors(f: Factor) -> str:
         return f"{main}; " + ", ".join(trailing)
     return main
 
+def _due_within_hours(task: models.Task, now: datetime, hours: int) -> bool:
+    due = task.hard_due_at or task.soft_due_at
+    if not due:
+        return False
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return due <= (now + timedelta(hours=hours))
 
 
-def prioritize_tasks(tasks: List[models.Task]) -> List[Ranked]:
+
+def prioritize_tasks(
+    tasks: List[models.Task],
+    *,
+    due_within_hours: int = 24,
+    weights: Dict[str, int] = None,
+) -> List[Ranked]:
+    if weights is None:
+        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2}  # Day-2 defaults
     now = datetime.now(timezone.utc)
     ranked: List[Ranked] = []
+    max_raw = _max_raw(weights) or 1
 
     for t in tasks:
         f = Factor()
         if getattr(t.status, "value", str(t.status)) == "todo":
             f.status_boost = 1
-        if _due_within_24h(t, now):
+        if _due_within_24h(t, now) if due_within_hours == 24 else _due_within_hours(t, now, due_within_hours):
             f.due_proximity = 1
         if _has_goal_tag(t):
             f.goal_align = 1
 
-        raw = (10 * f.status_boost) + (5 * f.due_proximity) + (2 * f.goal_align)
-        score = _normalize(raw)
+        raw = (weights['status_boost'] * f.status_boost) + \
+              (weights['due_proximity'] * f.due_proximity) + \
+              (weights['goal_align'] * f.goal_align)
+        score = int(round((raw / max_raw) * 100))
         ranked.append(
             Ranked(
                 task=t,
@@ -110,6 +131,14 @@ def prioritize_tasks(tasks: List[models.Task]) -> List[Ranked]:
             )
         )
 
-    # primary: score desc; tie-breaker: sort_order asc; final: created_at asc (stable)
     ranked.sort(key=lambda r: (-r.score, r.task.sort_order, r.task.created_at))
     return ranked
+
+def suggest_week(tasks: List[models.Task], limit: int = 5) -> List[Ranked]:
+    # Day-3 tweak: due within 7 days, same other weights for now
+    ranked = prioritize_tasks(
+        tasks,
+        due_within_hours=7*24,
+        weights={'status_boost': 10, 'due_proximity': 5, 'goal_align': 2}
+    )
+    return ranked[:max(1, min(limit, 5))]

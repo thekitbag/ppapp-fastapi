@@ -2,6 +2,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from typing import List
+from pydantic import BaseModel
+
 import time
 
 from app.db import SessionLocal, engine, Base
@@ -56,3 +58,17 @@ def patch_task(task_id: str, payload: schemas.TaskUpdate, db: Session = Depends(
         created_at=task.created_at, updated_at=task.updated_at 
 
     )
+
+class PromoteWeekBody(BaseModel):
+    task_ids: list[str]
+
+@router.post("/promote-week")
+def promote_week(body: PromoteWeekBody, db: Session = Depends(get_db)):
+    q = db.query(models.Task).filter(models.Task.id.in_(body.task_ids))
+    updated_ids = []
+    for t in q.all():
+        t.status = models.StatusEnum.week
+        updated_ids.append(t.id)
+    db.commit()
+    return {"updated": len(updated_ids), "ids": updated_ids}
+

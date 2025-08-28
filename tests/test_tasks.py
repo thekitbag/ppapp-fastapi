@@ -19,9 +19,9 @@ def test_create_and_list_task():
 def test_patch_task():
     r = client.post("/tasks", json={"title":"Patch me"})
     tid = r.json()["id"]
-    r2 = client.patch(f"/tasks/{tid}", json={"status":"todo"})
+    r2 = client.patch(f"/tasks/{tid}", json={"status":"week"})
     assert r2.status_code == 200
-    assert r2.json()["status"] == "todo"
+    assert r2.json()["status"] == "week"
 
 def test_task_timestamps_present_on_create():
     r = client.post("/tasks", json={"title": "Timestamp check", "tags": []})

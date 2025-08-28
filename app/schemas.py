@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 
-Status = Literal["inbox","todo","doing","done"]
+Status = Literal["backlog","week", "today", "doing","done", "waiting"]
 
 class TaskBase(BaseModel):
     title: str
