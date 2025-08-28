@@ -45,6 +45,8 @@ class RecommendationItem(BaseModel):
     task: TaskOut
     score: float
     factors: dict
+    why: str                
+
 
 class RecommendationResponse(BaseModel):
     items: List[RecommendationItem]
