@@ -11,7 +11,7 @@ def upgrade():
     # SQLite: easiest is batch recreate of the table to update the CHECK for status enum
     with op.batch_alter_table('tasks', recreate='always') as batch_op:
         batch_op.alter_column('status',
-            type_=sa.Enum('inbox','todo','doing','done','week', name='statusenum'),
+            type_=sa.Enum('backlog','today','waiting','doing','done','week', name='statusenum')
             existing_nullable=False,
             server_default='inbox'
         )

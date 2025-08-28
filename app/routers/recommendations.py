@@ -19,7 +19,9 @@ def get_db():
 def next_recommendations(window: int = 30, limit: int = 5, energy: str = "high", db: Session = Depends(get_db)):
     # Fetch candidate tasks (for Day-2, consider non-done)
     tasks: List[models.Task] = (
-        db.query(models.Task).all()
+        db.query(models.Task)
+        .filter(models.Task.status.in_(['backlog','doing','today', 'week']))
+        .all()
     )
     ranked = prioritize_tasks(tasks)
 
@@ -53,7 +55,9 @@ class SuggestWeekBody(BaseModel):
 @router.post("/suggest-week", response_model=schemas.RecommendationResponse)
 def suggest_week_api(body: SuggestWeekBody, db: Session = Depends(get_db)):
     tasks: List[models.Task] = (
-        db.query(models.Task).all()
+        db.query(models.Task)
+        .filter(models.Task.status.in_(['backlog']))
+        .all()
     )
     ranked = suggest_week(tasks, limit=body.limit)
     items = [
