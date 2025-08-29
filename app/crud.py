@@ -52,6 +52,7 @@ def update_task(db: Session, task: models.Task, data: dict) -> models.Task:
         if k == "tags":
             tags = [get_or_create_tag(db, n) for n in v]
             task.tags = tags
+            continue
         else:
             setattr(task, k, v)
     db.flush()
