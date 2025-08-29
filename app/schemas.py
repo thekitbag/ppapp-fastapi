@@ -1,9 +1,36 @@
-
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 
 Status = Literal["backlog","week", "today", "doing","done", "waiting"]
+
+class ProjectBase(BaseModel):
+    name: str
+    color: Optional[str] = None
+
+class ProjectCreate(ProjectBase):
+    pass
+
+class Project(ProjectBase):
+    id: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class GoalBase(BaseModel):
+    title: str
+    type: Optional[str] = None
+
+class GoalCreate(GoalBase):
+    pass
+
+class Goal(GoalBase):
+    id: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
 
 class TaskBase(BaseModel):
     title: str
@@ -13,9 +40,12 @@ class TaskBase(BaseModel):
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
+    project_id: Optional[str] = None
+    goal_id: Optional[str] = None
 
 class TaskCreate(TaskBase):
     tags: List[str] = []
+    status: Optional[Status] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -28,6 +58,8 @@ class TaskUpdate(BaseModel):
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
+    project_id: Optional[str] = None
+    goal_id: Optional[str] = None
 
 class TaskOut(BaseModel):
     id: str
@@ -38,15 +70,16 @@ class TaskOut(BaseModel):
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
-    created_at: datetime           
-    updated_at: datetime 
+    project_id: Optional[str] = None
+    goal_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 class RecommendationItem(BaseModel):
     task: TaskOut
     score: float
     factors: dict
-    why: str                
-
+    why: str
 
 class RecommendationResponse(BaseModel):
     items: List[RecommendationItem]

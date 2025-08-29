@@ -52,6 +52,8 @@ class Task(Base):
 
     # point to the association table
     tags = relationship("Tag", secondary=task_tags, back_populates="tasks")
+    project_id = Column(String, ForeignKey("projects.id"), nullable=True)
+    goal_id = Column(String, ForeignKey("goals.id"), nullable=True)
 
 class Tag(Base):
     __tablename__ = "tags"
@@ -68,3 +70,17 @@ class EnergyState(Base):
     recorded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     source = Column(String, default="manual", nullable=False)  # manual|inferred
     confidence = Column(Float, nullable=True)
+
+class Project(Base):
+    __tablename__ = "projects"
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class Goal(Base):
+    __tablename__ = "goals"
+    id = Column(String, primary_key=True)
+    title = Column(String, nullable=False)
+    type = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

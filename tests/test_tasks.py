@@ -10,6 +10,8 @@ def test_create_and_list_task():
     task = r.json()
     assert task["title"] == "Write docs"
     assert "alpha" in task["tags"]
+    assert task["project_id"] is None
+    assert task["goal_id"] is None
 
     r2 = client.get("/tasks")
     assert r2.status_code == 200
@@ -35,3 +37,43 @@ def test_task_timestamps_present_on_create():
     # check they appear also via GET /tasks
     r2 = client.get("/tasks")
     assert any(t["id"] == body["id"] and "created_at" in t for t in r2.json())
+
+def test_create_task_with_project_and_goal():
+    # Create a project and a goal first
+    project_response = client.post("/projects", json={"name": "New Project"})
+    assert project_response.status_code == 200
+    project_id = project_response.json()["id"]
+
+    goal_response = client.post("/goals", json={"title": "New Goal"})
+    assert goal_response.status_code == 200
+    goal_id = goal_response.json()["id"]
+
+    # Create a task with the project and goal
+    task_response = client.post("/tasks", json={
+        "title": "Task with Project and Goal",
+        "project_id": project_id,
+        "goal_id": goal_id
+    })
+    assert task_response.status_code == 200
+    task = task_response.json()
+    assert task["project_id"] == project_id
+    assert task["goal_id"] == goal_id
+
+def test_list_tasks_by_status():
+    # Create tasks with different statuses
+    client.post("/tasks", json={"title": "Backlog Task", "status": "backlog"})
+    client.post("/tasks", json={"title": "Week Task", "status": "week"})
+
+    # Filter by a single status
+    response = client.get("/tasks?status=backlog")
+    assert response.status_code == 200
+    tasks = response.json()
+    assert len(tasks) > 0
+    assert all(t["status"] == "backlog" for t in tasks)
+
+    # Filter by multiple statuses
+    response = client.get("/tasks?status=backlog&status=week")
+    assert response.status_code == 200
+    tasks = response.json()
+    assert len(tasks) > 0
+    assert all(t["status"] in ["backlog", "week"] for t in tasks)
