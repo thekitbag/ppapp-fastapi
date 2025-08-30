@@ -30,7 +30,7 @@ def create_task(db: Session, task_in: schemas.TaskCreate) -> models.Task:
         energy=task_in.energy,
         project_id=task_in.project_id,
         goal_id=task_in.goal_id,
-        sort_order=now_order
+        sort_order=now_order if task_in.sort_order is None else task_in.sort_order,
     )
     db.add(task)
     if task_in.tags:

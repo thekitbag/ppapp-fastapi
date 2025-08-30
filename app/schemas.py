@@ -46,6 +46,7 @@ class TaskBase(BaseModel):
 class TaskCreate(TaskBase):
     tags: List[str] = []
     status: Optional[Status] = None
+    sort_order: Optional[float] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
