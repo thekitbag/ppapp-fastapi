@@ -17,7 +17,7 @@ def get_or_create_tag(db: Session, name: str) -> models.Tag:
     return tag
 
 def create_task(db: Session, task_in: schemas.TaskCreate) -> models.Task:
-    now_order = time.time()
+    now_order = int(time.time() * 1000)  # ms, consistent with TaskRepository
     task = models.Task(
         id=_gen_id("task"),
         title=task_in.title,
