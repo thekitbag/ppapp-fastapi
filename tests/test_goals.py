@@ -5,8 +5,8 @@ client = TestClient(app)
 
 def test_create_and_list_goal():
     # Create a goal
-    response = client.post("/goals", json={"title": "Finish Q3 report", "type": "work"})
-    assert response.status_code == 200
+    response = client.post("/api/v1/goals", json={"title": "Finish Q3 report", "type": "work"})
+    assert response.status_code == 201
     goal = response.json()
     assert goal["title"] == "Finish Q3 report"
     assert goal["type"] == "work"
@@ -14,7 +14,7 @@ def test_create_and_list_goal():
     assert "created_at" in goal
 
     # List goals
-    response = client.get("/goals")
+    response = client.get("/api/v1/goals")
     assert response.status_code == 200
     goals = response.json()
     assert any(g["id"] == goal["id"] for g in goals)
