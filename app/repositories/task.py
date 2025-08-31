@@ -37,12 +37,14 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
     
     def create_with_tags(self, task_in: TaskCreate) -> Task:
         """Create task with tags."""
-        now_order = time.time()
-        
         task_data = task_in.model_dump(exclude={"tags"})
+        
+        # Set sort_order if not provided - use current timestamp in milliseconds
+        if "sort_order" not in task_data or task_data["sort_order"] is None:
+            task_data["sort_order"] = time.time() * 1000  # epoch milliseconds
+        
         task = Task(
             id=self._gen_id("task"),
-            sort_order=now_order,
             **task_data
         )
         
