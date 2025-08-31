@@ -251,3 +251,54 @@ def test_float_precision_preserved():
     
     updated_task = update_response.json()
     assert updated_task["sort_order"] == 987.123456
+
+
+def test_server_side_ordering_guarantees():
+    """Test that API returns tasks in correct order without client-side sorting."""
+    
+    import time
+    test_id = str(int(time.time() * 1000))
+    
+    # Create tasks with specific sort_order values (out of order chronologically)
+    task_c = client.post("/api/v1/tasks", json={
+        "title": f"ServerOrder_Task_C_{test_id}",
+        "status": "today", 
+        "sort_order": 3.0
+    })
+    assert task_c.status_code == 201
+    
+    task_a = client.post("/api/v1/tasks", json={
+        "title": f"ServerOrder_Task_A_{test_id}",
+        "status": "today",
+        "sort_order": 1.0  
+    })
+    assert task_a.status_code == 201
+    
+    task_b = client.post("/api/v1/tasks", json={
+        "title": f"ServerOrder_Task_B_{test_id}",
+        "status": "today",
+        "sort_order": 2.0
+    })
+    assert task_b.status_code == 201
+    
+    # Get tasks without any client-side sorting
+    response = client.get("/api/v1/tasks?status=today")
+    assert response.status_code == 200
+    all_tasks = response.json()
+    
+    # Filter for our test tasks only (preserving API response order)
+    test_tasks = [t for t in all_tasks if test_id in t["title"]]
+    
+    # Verify server returned them in correct sort_order (API should guarantee this)
+    assert len(test_tasks) == 3
+    assert test_tasks[0]["title"] == f"ServerOrder_Task_A_{test_id}"  # sort_order 1.0
+    assert test_tasks[0]["sort_order"] == 1.0
+    assert test_tasks[1]["title"] == f"ServerOrder_Task_B_{test_id}"  # sort_order 2.0  
+    assert test_tasks[1]["sort_order"] == 2.0
+    assert test_tasks[2]["title"] == f"ServerOrder_Task_C_{test_id}"  # sort_order 3.0
+    assert test_tasks[2]["sort_order"] == 3.0
+    
+    # Also verify sort_order values are in ascending order as returned by API
+    for i in range(len(test_tasks) - 1):
+        assert test_tasks[i]["sort_order"] <= test_tasks[i + 1]["sort_order"], \
+            f"API returned tasks out of order: {test_tasks[i]['sort_order']} > {test_tasks[i+1]['sort_order']}"

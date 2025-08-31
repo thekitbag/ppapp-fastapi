@@ -41,7 +41,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         
         # Set sort_order if not provided - use current timestamp in milliseconds
         if "sort_order" not in task_data or task_data["sort_order"] is None:
-            task_data["sort_order"] = time.time() * 1000  # epoch milliseconds
+            task_data["sort_order"] = int(time.time() * 1000)  # ms, consistent
         
         task = Task(
             id=self._gen_id("task"),
