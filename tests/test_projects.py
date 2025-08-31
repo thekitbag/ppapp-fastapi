@@ -5,8 +5,8 @@ client = TestClient(app)
 
 def test_create_and_list_project():
     # Create a project
-    response = client.post("/projects", json={"name": "Work", "color": "#ff0000"})
-    assert response.status_code == 200
+    response = client.post("/api/v1/projects", json={"name": "Work", "color": "#ff0000"})
+    assert response.status_code == 201
     project = response.json()
     assert project["name"] == "Work"
     assert project["color"] == "#ff0000"
@@ -14,7 +14,7 @@ def test_create_and_list_project():
     assert "created_at" in project
 
     # List projects
-    response = client.get("/projects")
+    response = client.get("/api/v1/projects")
     assert response.status_code == 200
     projects = response.json()
     assert any(p["id"] == project["id"] for p in projects)

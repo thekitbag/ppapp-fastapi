@@ -16,7 +16,7 @@ class Project(ProjectBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class GoalBase(BaseModel):
     title: str
@@ -30,7 +30,7 @@ class Goal(GoalBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class TaskBase(BaseModel):
     title: str
