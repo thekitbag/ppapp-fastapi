@@ -46,12 +46,13 @@ def get_task(
 
 
 @router.put("/{task_id}", response_model=TaskOut)
+@router.patch("/{task_id}", response_model=TaskOut)
 def update_task(
     task_id: str,
     update_data: dict,
     task_service: TaskService = Depends(get_task_service)
 ):
-    """Update a task."""
+    """Update a task (supports both PUT and PATCH for compatibility)."""
     return task_service.update_task(task_id, update_data)
 
 
