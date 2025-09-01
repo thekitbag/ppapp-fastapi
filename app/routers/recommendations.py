@@ -23,7 +23,7 @@ def next_recommendations(window: int = 30, limit: int = 5, energy: str = "high",
         .filter(models.Task.status.in_(['backlog','doing','today', 'week']))
         .all()
     )
-    ranked = prioritize_tasks(tasks)
+    ranked = prioritize_tasks(tasks, db=db)
 
     items: List[schemas.RecommendationItem] = []
     for r in ranked[: max(1, limit)]:  # always at least 1 if any task exists
@@ -38,6 +38,8 @@ def next_recommendations(window: int = 30, limit: int = 5, energy: str = "high",
                     effort_minutes=r.task.effort_minutes,
                     hard_due_at=r.task.hard_due_at,
                     soft_due_at=r.task.soft_due_at,
+                    project_id=r.task.project_id,
+                    goal_id=r.task.goal_id,
                     created_at=r.task.created_at,
                     updated_at=r.task.updated_at,
                 ),
@@ -59,7 +61,7 @@ def suggest_week_api(body: SuggestWeekBody, db: Session = Depends(get_db)):
         .filter(models.Task.status.in_(['backlog']))
         .all()
     )
-    ranked = suggest_week(tasks, limit=body.limit)
+    ranked = suggest_week(tasks, db=db, limit=body.limit)
     items = [
         schemas.RecommendationItem(
             task=schemas.TaskOut(
@@ -71,6 +73,8 @@ def suggest_week_api(body: SuggestWeekBody, db: Session = Depends(get_db)):
                 effort_minutes=r.task.effort_minutes,
                 hard_due_at=r.task.hard_due_at,
                 soft_due_at=r.task.soft_due_at,
+                project_id=r.task.project_id,
+                goal_id=r.task.goal_id,
                 created_at=r.task.created_at,
                 updated_at=r.task.updated_at,
             ),
