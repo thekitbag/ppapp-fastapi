@@ -3,11 +3,11 @@ from sqlalchemy.orm import Session
 import uuid
 
 from app.models import Project
-from app.schemas import ProjectCreate, Project as ProjectSchema
+from app.schemas import ProjectCreate, ProjectUpdate, Project as ProjectSchema
 from .base import BaseRepository
 
 
-class ProjectRepository(BaseRepository[Project, ProjectCreate, dict]):
+class ProjectRepository(BaseRepository[Project, ProjectCreate, ProjectUpdate]):
     """Repository for Project operations."""
     
     def __init__(self, db: Session):
@@ -30,11 +30,21 @@ class ProjectRepository(BaseRepository[Project, ProjectCreate, dict]):
         self.db.refresh(project)
         return project
     
+    def update(self, project_id: str, project_update: ProjectUpdate) -> Project:
+        """Update project by ID."""
+        project = self.get(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
+        
+        return super().update(project, project_update)
+    
     def to_schema(self, project: Project) -> ProjectSchema:
         """Convert Project model to Project schema."""
         return ProjectSchema(
             id=project.id,
             name=project.name,
             color=project.color,
+            milestone_title=project.milestone_title,
+            milestone_due_at=project.milestone_due_at,
             created_at=project.created_at
         )

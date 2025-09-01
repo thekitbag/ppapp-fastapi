@@ -2,7 +2,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.repositories import ProjectRepository
-from app.schemas import ProjectCreate, Project as ProjectSchema
+from app.schemas import ProjectCreate, ProjectUpdate, Project as ProjectSchema
 from app.exceptions import NotFoundError, ValidationError
 from .base import BaseService
 
@@ -52,6 +52,29 @@ class ProjectService(BaseService):
         
         projects = self.project_repo.get_multi(skip=skip, limit=limit)
         return [self.project_repo.to_schema(project) for project in projects]
+    
+    def update_project(self, project_id: str, project_update: ProjectUpdate) -> ProjectSchema:
+        """Update a project (partial update)."""
+        try:
+            self.logger.info(f"Updating project: {project_id}")
+            
+            existing_project = self.project_repo.get(project_id)
+            if not existing_project:
+                raise NotFoundError("Project", project_id)
+            
+            if project_update.name is not None and (not project_update.name or not project_update.name.strip()):
+                raise ValidationError("Project name cannot be empty")
+            
+            updated_project = self.project_repo.update(project_id, project_update)
+            self.commit()
+            
+            self.logger.info(f"Project updated successfully: {project_id}")
+            return self.project_repo.to_schema(updated_project)
+            
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to update project {project_id}: {str(e)}")
+            raise
     
     def delete_project(self, project_id: str) -> bool:
         """Delete a project."""

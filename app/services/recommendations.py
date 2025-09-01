@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Tuple
+import math
+from sqlalchemy.orm import Session
 
 from app import models
 
@@ -23,13 +25,14 @@ class Factor:
     status_boost: int = 0
     due_proximity: int = 0
     goal_align: int = 0
+    project_due_proximity: float = 0.0
 
 @dataclass
 class Ranked:
     task: models.Task
-    raw: int
-    score: int
-    factors: Dict[str, int]
+    raw: float
+    score: float
+    factors: Dict[str, float]
     why: str
 
 def _due_within_24h(task: models.Task, now: datetime) -> bool:
@@ -49,12 +52,17 @@ def _normalize(raw: int) -> int:
         return 0
     return int(round((raw / MAX_RAW) * 100))
 
-def _why_from_factors(f: Factor) -> str:
+def _why_from_factors(f: Factor, project: models.Project = None, days_until_project_due: int = 0) -> str:
     bits = []
     if f.due_proximity:
         bits.append("due soon")
     if f.goal_align:
         bits.append("aligned with a goal")
+    if f.project_due_proximity > 0.3 and project and project.milestone_title:
+        if days_until_project_due <= 1:
+            bits.append(f"Project {project.name} milestone in 1 day")
+        else:
+            bits.append(f"Project {project.name} milestone in {days_until_project_due} days")
 
     trailing = []
     if f.status_boost:
@@ -91,54 +99,110 @@ def _due_within_hours(task: models.Task, now: datetime, hours: int) -> bool:
     return due <= (now + timedelta(hours=hours))
 
 
+def _calculate_project_due_proximity(project: models.Project, now: datetime) -> Tuple[float, int]:
+    """
+    Calculate project milestone proximity score and days until due.
+    Returns (score, days_until_due) where score is 0-1 and days_until_due is positive integer.
+    """
+    if not project or not project.milestone_due_at:
+        return 0.0, 0
+    
+    milestone_due = project.milestone_due_at
+    if milestone_due.tzinfo is None:
+        milestone_due = milestone_due.replace(tzinfo=timezone.utc)
+    
+    # If milestone is in the past, set score to 0
+    if milestone_due <= now:
+        return 0.0, 0
+    
+    days_delta = (milestone_due - now).days
+    
+    # Use sigmoid curve: score = 1 / (1 + exp((days - 7) / 2.0))
+    # This gives ~0.88 at 1 day, ~0.5 at 7 days, ~0.12 at 14 days
+    score = 1 / (1 + math.exp((days_delta - 7) / 2.0))
+    
+    return score, days_delta
+
+
 
 def prioritize_tasks(
     tasks: List[models.Task],
+    db: Session = None,
     *,
     due_within_hours: int = 24,
-    weights: Dict[str, int] = None,
+    weights: Dict[str, float] = None,
 ) -> List[Ranked]:
     if weights is None:
-        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2}  # Day-2 defaults
+        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12}
+    
     now = datetime.now(timezone.utc)
     ranked: List[Ranked] = []
-    max_raw = _max_raw(weights) or 1
+    
+    # Fetch projects in batch to avoid N+1 queries
+    project_ids = [t.project_id for t in tasks if t.project_id]
+    projects_dict = {}
+    if db and project_ids:
+        projects = db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
+        projects_dict = {p.id: p for p in projects}
+    
+    # Calculate max possible raw score
+    max_raw = sum(weights.values())
+    if max_raw == 0:
+        max_raw = 1
 
     for t in tasks:
         f = Factor()
+        project = projects_dict.get(t.project_id) if t.project_id else None
+        days_until_project_due = 0
+        
+        # Status boost
         if getattr(t.status, "value", str(t.status)) == "todo":
             f.status_boost = 1
+        
+        # Due proximity
         if _due_within_24h(t, now) if due_within_hours == 24 else _due_within_hours(t, now, due_within_hours):
             f.due_proximity = 1
+        
+        # Goal alignment
         if _has_goal_tag(t):
             f.goal_align = 1
-
+        
+        # Project due proximity
+        if project:
+            f.project_due_proximity, days_until_project_due = _calculate_project_due_proximity(project, now)
+        
+        # Calculate weighted raw score
         raw = (weights['status_boost'] * f.status_boost) + \
               (weights['due_proximity'] * f.due_proximity) + \
-              (weights['goal_align'] * f.goal_align)
-        score = int(round((raw / max_raw) * 100))
+              (weights['goal_align'] * f.goal_align) + \
+              (weights['project_due_proximity'] * f.project_due_proximity)
+        
+        score = (raw / max_raw) * 100
+        
         ranked.append(
             Ranked(
                 task=t,
                 raw=raw,
                 score=score,
                 factors={
-                    "status_boost": f.status_boost,
-                    "due_proximity": f.due_proximity,
-                    "goal_align": f.goal_align,
+                    "status_boost": float(f.status_boost),
+                    "due_proximity": float(f.due_proximity),
+                    "goal_align": float(f.goal_align),
+                    "project_due_proximity": f.project_due_proximity,
                 },
-                why=_why_from_factors(f),
+                why=_why_from_factors(f, project, days_until_project_due),
             )
         )
 
     ranked.sort(key=lambda r: (-r.score, r.task.sort_order, r.task.created_at))
     return ranked
 
-def suggest_week(tasks: List[models.Task], limit: int = 5) -> List[Ranked]:
+def suggest_week(tasks: List[models.Task], db: Session = None, limit: int = 5) -> List[Ranked]:
     # Day-3 tweak: due within 7 days, same other weights for now
     ranked = prioritize_tasks(
         tasks,
+        db=db,
         due_within_hours=7*24,
-        weights={'status_boost': 10, 'due_proximity': 5, 'goal_align': 2}
+        weights={'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12}
     )
     return ranked[:max(1, min(limit, 5))]

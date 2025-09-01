@@ -4,7 +4,7 @@ from typing import List
 
 from app.db import get_db
 from app.services import ProjectService
-from app.schemas import ProjectCreate, Project
+from app.schemas import ProjectCreate, ProjectUpdate, Project
 
 
 router = APIRouter()
@@ -41,6 +41,16 @@ def get_project(
 ):
     """Get a specific project by ID."""
     return project_service.get_project(project_id)
+
+
+@router.patch("/{project_id}", response_model=Project)
+def update_project(
+    project_id: str,
+    payload: ProjectUpdate,
+    project_service: ProjectService = Depends(get_project_service)
+):
+    """Update a project (partial update)."""
+    return project_service.update_project(project_id, payload)
 
 
 @router.delete("/{project_id}", status_code=204)

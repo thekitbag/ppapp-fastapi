@@ -108,6 +108,8 @@ class Project(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)
+    milestone_title = Column(Text, nullable=True)
+    milestone_due_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships

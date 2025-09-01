@@ -7,9 +7,17 @@ Status = Literal["backlog","week", "today", "doing","done", "waiting"]
 class ProjectBase(BaseModel):
     name: str
     color: Optional[str] = None
+    milestone_title: Optional[str] = None
+    milestone_due_at: Optional[datetime] = None
 
 class ProjectCreate(ProjectBase):
     pass
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    milestone_title: Optional[str] = None
+    milestone_due_at: Optional[datetime] = None
 
 class Project(ProjectBase):
     id: str
