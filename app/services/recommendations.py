@@ -26,6 +26,7 @@ class Factor:
     due_proximity: int = 0
     goal_align: int = 0
     project_due_proximity: float = 0.0
+    goal_linked: int = 0
 
 @dataclass
 class Ranked:
@@ -52,7 +53,7 @@ def _normalize(raw: int) -> int:
         return 0
     return int(round((raw / MAX_RAW) * 100))
 
-def _why_from_factors(f: Factor, project: models.Project = None, days_until_project_due: int = 0) -> str:
+def _why_from_factors(f: Factor, project: models.Project = None, days_until_project_due: int = 0, goal_titles: List[str] = None) -> str:
     bits = []
     if f.due_proximity:
         bits.append("due soon")
@@ -63,6 +64,12 @@ def _why_from_factors(f: Factor, project: models.Project = None, days_until_proj
             bits.append(f"Project {project.name} milestone in 1 day")
         else:
             bits.append(f"Project {project.name} milestone in {days_until_project_due} days")
+    
+    if f.goal_linked and goal_titles:
+        if len(goal_titles) == 1:
+            bits.append(f"Linked to goal '{goal_titles[0]}'")
+        else:
+            bits.append(f"Linked to {len(goal_titles)} goals")
 
     trailing = []
     if f.status_boost:
@@ -134,7 +141,7 @@ def prioritize_tasks(
     weights: Dict[str, float] = None,
 ) -> List[Ranked]:
     if weights is None:
-        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12}
+        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12, 'goal_linked': 0.10}
     
     now = datetime.now(timezone.utc)
     ranked: List[Ranked] = []
@@ -146,6 +153,26 @@ def prioritize_tasks(
         projects = db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
         projects_dict = {p.id: p for p in projects}
     
+    # Fetch task-goal links in batch to avoid N+1 queries
+    task_ids = [t.id for t in tasks]
+    task_goals_dict = {}
+    if db and task_ids:
+        from app.models import TaskGoal  # Import here to avoid circular imports
+        task_goal_links = db.query(TaskGoal).filter(TaskGoal.task_id.in_(task_ids)).all()
+        
+        # Group by task_id
+        for link in task_goal_links:
+            if link.task_id not in task_goals_dict:
+                task_goals_dict[link.task_id] = []
+            task_goals_dict[link.task_id].append(link.goal_id)
+        
+        # Fetch goals for explanations
+        goal_ids = list({goal_id for goal_list in task_goals_dict.values() for goal_id in goal_list})
+        goals_dict = {}
+        if goal_ids:
+            goals = db.query(models.Goal).filter(models.Goal.id.in_(goal_ids)).all()
+            goals_dict = {g.id: g for g in goals}
+    
     # Calculate max possible raw score
     max_raw = sum(weights.values())
     if max_raw == 0:
@@ -155,6 +182,11 @@ def prioritize_tasks(
         f = Factor()
         project = projects_dict.get(t.project_id) if t.project_id else None
         days_until_project_due = 0
+        
+        # Get linked goals for this task
+        linked_goal_ids = task_goals_dict.get(t.id, [])
+        linked_goals = [goals_dict.get(goal_id) for goal_id in linked_goal_ids if goal_id in goals_dict] if db else []
+        goal_titles = [g.title for g in linked_goals if g]
         
         # Status boost
         if getattr(t.status, "value", str(t.status)) == "todo":
@@ -172,11 +204,16 @@ def prioritize_tasks(
         if project:
             f.project_due_proximity, days_until_project_due = _calculate_project_due_proximity(project, now)
         
+        # Goal linked factor
+        if len(linked_goal_ids) > 0:
+            f.goal_linked = 1
+        
         # Calculate weighted raw score
         raw = (weights['status_boost'] * f.status_boost) + \
               (weights['due_proximity'] * f.due_proximity) + \
               (weights['goal_align'] * f.goal_align) + \
-              (weights['project_due_proximity'] * f.project_due_proximity)
+              (weights['project_due_proximity'] * f.project_due_proximity) + \
+              (weights['goal_linked'] * f.goal_linked)
         
         score = (raw / max_raw) * 100
         
@@ -190,8 +227,9 @@ def prioritize_tasks(
                     "due_proximity": float(f.due_proximity),
                     "goal_align": float(f.goal_align),
                     "project_due_proximity": f.project_due_proximity,
+                    "goal_linked": float(f.goal_linked),
                 },
-                why=_why_from_factors(f, project, days_until_project_due),
+                why=_why_from_factors(f, project, days_until_project_due, goal_titles),
             )
         )
 
@@ -204,6 +242,6 @@ def suggest_week(tasks: List[models.Task], db: Session = None, limit: int = 5) -
         tasks,
         db=db,
         due_within_hours=7*24,
-        weights={'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12}
+        weights={'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12, 'goal_linked': 0.10}
     )
     return ranked[:max(1, min(limit, 5))]

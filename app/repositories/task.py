@@ -91,17 +91,83 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
     def get_by_status(self, status: List[str], skip: int = 0, limit: int = 100) -> List[Task]:
         """Get tasks filtered by status."""
         query = select(Task)
-        if status:
+        if status:  # Only filter if status list is not empty
             query = query.where(Task.status.in_(status))
         
-        return self.db.execute(
-            query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.asc())
+        # Add some debug logging
+        result = self.db.execute(
+            query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.desc())  # Show newest tasks first
             .offset(skip)
             .limit(limit)
         ).scalars().all()
+        
+        return result
+    
+    def to_schema_batch(self, tasks: List[Task]) -> List[TaskOut]:
+        """Convert multiple Task models to TaskOut schemas efficiently (avoids N+1 queries)."""
+        if not tasks:
+            return []
+        
+        from app.models import TaskGoal, Goal  # Import here to avoid circular imports
+        from app.schemas import GoalSummary
+        
+        # Get all task IDs
+        task_ids = [task.id for task in tasks]
+        
+        # Batch fetch all task-goal links
+        task_goal_links = self.db.query(TaskGoal).filter(TaskGoal.task_id.in_(task_ids)).all()
+        
+        # Group links by task_id
+        task_goals_map = {}
+        goal_ids = set()
+        for link in task_goal_links:
+            if link.task_id not in task_goals_map:
+                task_goals_map[link.task_id] = []
+            task_goals_map[link.task_id].append(link.goal_id)
+            goal_ids.add(link.goal_id)
+        
+        # Batch fetch all goals
+        goals_dict = {}
+        if goal_ids:
+            goals = self.db.query(Goal).filter(Goal.id.in_(goal_ids)).all()
+            goals_dict = {goal.id: goal for goal in goals}
+        
+        # Build TaskOut objects
+        result = []
+        for task in tasks:
+            linked_goal_ids = task_goals_map.get(task.id, [])
+            linked_goals = [goals_dict[goal_id] for goal_id in linked_goal_ids if goal_id in goals_dict]
+            
+            result.append(TaskOut(
+                id=task.id,
+                title=task.title,
+                status=task.status.value,
+                sort_order=task.sort_order,
+                tags=[tag.name for tag in task.tags],
+                effort_minutes=task.effort_minutes,
+                hard_due_at=task.hard_due_at,
+                soft_due_at=task.soft_due_at,
+                project_id=task.project_id,
+                goal_id=task.goal_id,  # Keep for backward compatibility
+                goals=[GoalSummary(id=g.id, title=g.title) for g in linked_goals],
+                created_at=task.created_at,
+                updated_at=task.updated_at
+            ))
+        
+        return result
     
     def to_schema(self, task: Task) -> TaskOut:
         """Convert Task model to TaskOut schema."""
+        # Get linked goals for this task
+        from app.models import TaskGoal, Goal  # Import here to avoid circular imports
+        from app.schemas import GoalSummary
+        
+        task_goal_links = self.db.query(TaskGoal).filter(TaskGoal.task_id == task.id).all()
+        goal_ids = [link.goal_id for link in task_goal_links]
+        task_goals = []
+        if goal_ids:
+            task_goals = self.db.query(Goal).filter(Goal.id.in_(goal_ids)).all()
+        
         return TaskOut(
             id=task.id,
             title=task.title,
@@ -112,7 +178,8 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             hard_due_at=task.hard_due_at,
             soft_due_at=task.soft_due_at,
             project_id=task.project_id,
-            goal_id=task.goal_id,
+            goal_id=task.goal_id,  # Keep for backward compatibility
+            goals=[GoalSummary(id=g.id, title=g.title) for g in task_goals],
             created_at=task.created_at,
             updated_at=task.updated_at
         )

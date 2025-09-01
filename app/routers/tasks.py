@@ -12,44 +12,41 @@ Base.metadata.create_all(bind=engine)
 
 router = APIRouter()
 
-@router.post("", response_model=schemas.TaskOut)
-def create_task(payload: schemas.TaskCreate, db: Session = Depends(get_db)):
-    task = crud.create_task(db, payload)
-    db.commit()
+def _build_task_out(task: models.Task, db: Session) -> schemas.TaskOut:
+    """Helper function to build TaskOut with goals populated."""
+    # Get all goals for this task
+    task_goal_links = db.query(models.TaskGoal).filter(models.TaskGoal.task_id == task.id).all()
+    goal_ids = [link.goal_id for link in task_goal_links]
+    task_goals = []
+    if goal_ids:
+        task_goals = db.query(models.Goal).filter(models.Goal.id.in_(goal_ids)).all()
+    
     return schemas.TaskOut(
         id=task.id,
         title=task.title,
         status=task.status.value,
         sort_order=task.sort_order,
-        tags=[t.name for t in task.tags],
+        tags=[tag.name for tag in task.tags],
         effort_minutes=task.effort_minutes,
         hard_due_at=task.hard_due_at,
         soft_due_at=task.soft_due_at,
         project_id=task.project_id,
-        goal_id=task.goal_id,
+        goal_id=task.goal_id,  # Keep for backward compatibility
+        goals=[schemas.GoalSummary(id=g.id, title=g.title) for g in task_goals],
         created_at=task.created_at,
         updated_at=task.updated_at
     )
 
+@router.post("", response_model=schemas.TaskOut)
+def create_task(payload: schemas.TaskCreate, db: Session = Depends(get_db)):
+    task = crud.create_task(db, payload)
+    db.commit()
+    return _build_task_out(task, db)
+
 @router.get("", response_model=List[schemas.TaskOut])
 def list_tasks(status: List[str] = Query(None), db: Session = Depends(get_db)):
     tasks = crud.list_tasks(db, status=status)
-    return [
-        schemas.TaskOut(
-            id=t.id,
-            title=t.title,
-            status=t.status.value,
-            sort_order=t.sort_order,
-            tags=[tag.name for tag in t.tags],
-            effort_minutes=t.effort_minutes,
-            hard_due_at=t.hard_due_at,
-            soft_due_at=t.soft_due_at,
-            project_id=t.project_id,
-            goal_id=t.goal_id,
-            created_at=t.created_at,
-            updated_at=t.updated_at
-        ) for t in tasks
-    ]
+    return [_build_task_out(task, db) for task in tasks]
 
 @router.patch("/{task_id}", response_model=schemas.TaskOut)
 def patch_task(task_id: str, payload: schemas.TaskUpdate, db: Session = Depends(get_db)):
@@ -58,20 +55,7 @@ def patch_task(task_id: str, payload: schemas.TaskUpdate, db: Session = Depends(
         raise HTTPException(404, "Task not found")
     updated = crud.update_task(db, task, payload.model_dump(exclude_unset=True))
     db.commit()
-    return schemas.TaskOut(
-        id=updated.id,
-        title=updated.title,
-        status=updated.status.value,
-        sort_order=updated.sort_order,
-        tags=[tag.name for tag in updated.tags],
-        effort_minutes=updated.effort_minutes,
-        hard_due_at=updated.hard_due_at,
-        soft_due_at=updated.soft_due_at,
-        project_id=updated.project_id,
-        goal_id=updated.goal_id,
-        created_at=task.created_at,
-        updated_at=task.updated_at
-    )
+    return _build_task_out(updated, db)
 
 class PromoteWeekBody(BaseModel):
     task_ids: list[str]

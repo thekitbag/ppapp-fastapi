@@ -101,12 +101,30 @@ def test_prioritize_tasks_with_project_milestones():
     
     # Create mock db session
     class MockDB:
+        def __init__(self):
+            self.current_model = None
+            
         def query(self, model):
+            self.current_model = model
             return self
+            
         def filter(self, condition):
             return self
+            
         def all(self):
-            return [project_soon, project_far]
+            model_str = str(self.current_model) if self.current_model else ""
+            if "Project" in model_str and "TaskGoal" not in model_str:
+                return [project_soon, project_far]
+            elif "TaskGoal" in model_str:
+                # No task-goal links in this test
+                return []
+            elif "Goal" in model_str and "TaskGoal" not in model_str:
+                # No goals in this test
+                return []
+            return []
+            
+        def in_(self, ids):
+            return self
     
     mock_db = MockDB()
     
@@ -141,12 +159,30 @@ def test_project_milestone_explanation_text():
     project_6_days = _mk_project("RegularProject", "Milestone", now + timedelta(days=6))
     
     class MockDB:
+        def __init__(self):
+            self.current_model = None
+            
         def query(self, model):
+            self.current_model = model
             return self
+            
         def filter(self, condition):
             return self
+            
         def all(self):
-            return [project_1_day, project_6_days]
+            model_str = str(self.current_model) if self.current_model else ""
+            if "Project" in model_str and "TaskGoal" not in model_str:
+                return [project_1_day, project_6_days]
+            elif "TaskGoal" in model_str:
+                # No task-goal links in this test
+                return []
+            elif "Goal" in model_str and "TaskGoal" not in model_str:
+                # No goals in this test
+                return []
+            return []
+            
+        def in_(self, ids):
+            return self
     
     mock_db = MockDB()
     
@@ -172,12 +208,30 @@ def test_project_milestone_weights():
     project = _mk_project("TestProject", "v1.0", now + timedelta(days=5))
     
     class MockDB:
+        def __init__(self):
+            self.current_model = None
+            
         def query(self, model):
+            self.current_model = model
             return self
+            
         def filter(self, condition):
             return self
+            
         def all(self):
-            return [project]
+            model_str = str(self.current_model) if self.current_model else ""
+            if "Project" in model_str and "TaskGoal" not in model_str:
+                return [project]
+            elif "TaskGoal" in model_str:
+                # No task-goal links in this test
+                return []
+            elif "Goal" in model_str and "TaskGoal" not in model_str:
+                # No goals in this test
+                return []
+            return []
+            
+        def in_(self, ids):
+            return self
     
     mock_db = MockDB()
     
