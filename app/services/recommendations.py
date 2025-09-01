@@ -108,6 +108,7 @@ def _calculate_project_due_proximity(project: models.Project, now: datetime) -> 
         return 0.0, 0
     
     milestone_due = project.milestone_due_at
+    # Treat naive datetime as UTC (not local time)
     if milestone_due.tzinfo is None:
         milestone_due = milestone_due.replace(tzinfo=timezone.utc)
     
@@ -139,7 +140,7 @@ def prioritize_tasks(
     ranked: List[Ranked] = []
     
     # Fetch projects in batch to avoid N+1 queries
-    project_ids = [t.project_id for t in tasks if t.project_id]
+    project_ids = list({t.project_id for t in tasks if t.project_id})
     projects_dict = {}
     if db and project_ids:
         projects = db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
@@ -194,7 +195,7 @@ def prioritize_tasks(
             )
         )
 
-    ranked.sort(key=lambda r: (-r.score, r.task.sort_order, r.task.created_at))
+    ranked.sort(key=lambda r: (-r.score, (r.task.sort_order or 0.0), r.task.created_at))
     return ranked
 
 def suggest_week(tasks: List[models.Task], db: Session = None, limit: int = 5) -> List[Ranked]:
