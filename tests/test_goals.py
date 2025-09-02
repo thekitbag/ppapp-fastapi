@@ -225,18 +225,15 @@ def test_tasks_include_goals_in_response():
     link_result = link_response.json()
     assert task["id"] in link_result["linked"], "Task was not successfully linked to goal"
     
-    # Get tasks list - should include goals
-    # Note: Repository now orders by created_at DESC so newest tasks appear first
-    tasks_response = client.get("/api/v1/tasks/")
-    assert tasks_response.status_code == 200
-    tasks = tasks_response.json()
+    # Get individual task - should include goals (more reliable than list pagination)
+    task_with_goals_response = client.get(f"/api/v1/tasks/{task['id']}")
+    assert task_with_goals_response.status_code == 200
+    task_with_goals = task_with_goals_response.json()
     
-    # Find our task (should be near the top now due to DESC ordering)
-    our_task = next((t for t in tasks if t["id"] == task["id"]), None)
-    assert our_task is not None, f"Task {task['id']} not found in task list (newest first ordering)"
-    assert len(our_task["goals"]) == 1
-    assert our_task["goals"][0]["id"] == goal["id"]
-    assert our_task["goals"][0]["title"] == f"API Development {timestamp}"
+    # Verify task includes goals
+    assert len(task_with_goals["goals"]) == 1
+    assert task_with_goals["goals"][0]["id"] == goal["id"]
+    assert task_with_goals["goals"][0]["title"] == f"API Development {timestamp}"
 
 def test_delete_key_result():
     """Test deleting a key result."""

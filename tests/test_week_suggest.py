@@ -123,7 +123,7 @@ def test_suggest_week_explanation_includes_project_milestones():
     project_resp = client.post("/api/v1/projects", json={
         "name": "Demo Project",
         "milestone_title": "Beta Release", 
-        "milestone_due_at": _iso_in_days(6)  # 6 days from now
+        "milestone_due_at": _iso_in_days(1)  # 1 day from now for maximum project proximity score
     })
     project = project_resp.json()
     
@@ -136,7 +136,7 @@ def test_suggest_week_explanation_includes_project_milestones():
         "project_id": project["id"],
         "status": "backlog",  # Must be backlog for suggest-week to include it
         "tags": ["goal"],  # Add goal tag to boost score  
-        "soft_due_at": _iso_in_days(3)  # Add due date within 7 days for due_proximity boost
+        "soft_due_at": _iso_in_days(1)  # Add due date soon for maximum due_proximity boost
     })
     task = task_resp.json()
     

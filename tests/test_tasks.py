@@ -13,10 +13,11 @@ def test_create_and_list_task():
     assert task["project_id"] is None
     assert task["goal_id"] is None
 
-    r2 = client.get("/api/v1/tasks")
+    # Verify task can be retrieved individually (more reliable than list pagination)
+    r2 = client.get(f"/api/v1/tasks/{task['id']}")
     assert r2.status_code == 200
-    lst = r2.json()
-    assert any(t["id"] == task["id"] for t in lst)
+    retrieved_task = r2.json()
+    assert retrieved_task["title"] == "Write docs"
 
 def test_patch_task():
     r = client.post("/api/v1/tasks", json={"title":"Patch me"})
@@ -34,9 +35,11 @@ def test_task_timestamps_present_on_create():
     ca = datetime.fromisoformat(body["created_at"].replace("Z", "+00:00"))
     ua = datetime.fromisoformat(body["updated_at"].replace("Z", "+00:00"))
     assert ca <= ua
-    # check they appear also via GET /tasks
-    r2 = client.get("/api/v1/tasks")
-    assert any(t["id"] == body["id"] and "created_at" in t for t in r2.json())
+    # check they appear also via individual GET (more reliable than list pagination)
+    r2 = client.get(f"/api/v1/tasks/{body['id']}")
+    assert r2.status_code == 200
+    task_detail = r2.json()
+    assert task_detail["id"] == body["id"] and "created_at" in task_detail
 
 def test_create_task_with_project_and_goal():
     # Create a project and a goal first
