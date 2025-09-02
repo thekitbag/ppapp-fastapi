@@ -49,6 +49,9 @@ def upgrade():
     # op.create_foreign_key(None, 'task_goals', 'goals', ['goal_id'], ['id'], ondelete='CASCADE')
 
 def downgrade():
+    op.drop_index('ix_task_goals_goal', table_name='task_goals')
+    op.drop_index('ix_task_goals_task', table_name='task_goals')
     op.drop_table('task_goals')
+    op.drop_index('ix_goal_krs_goal', table_name='goal_krs')
     op.drop_table('goal_krs')
     # Don't drop goals table as it existed before this migration

@@ -244,4 +244,4 @@ def suggest_week(tasks: List[models.Task], db: Session = None, limit: int = 5) -
         due_within_hours=7*24,
         weights={'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12, 'goal_linked': 0.10}
     )
-    return ranked[:max(1, min(limit, 5))]
+    return ranked[:limit]
