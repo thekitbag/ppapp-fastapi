@@ -17,30 +17,36 @@ def upgrade():
     # Goals table already exists from previous migration, only create the new tables
     
     # Create goal_krs table
-    op.create_table('goal_krs',
-        sa.Column('id', sa.Text(), nullable=False, primary_key=True),
+    op.create_table(
+        'goal_krs',
+        sa.Column('id', sa.Text(), primary_key=True, nullable=False),
         sa.Column('goal_id', sa.Text(), nullable=False),
         sa.Column('name', sa.Text(), nullable=False),
         sa.Column('target_value', sa.Float(), nullable=False),
         sa.Column('unit', sa.Text(), nullable=True),
         sa.Column('baseline_value', sa.Float(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
-        sa.ForeignKeyConstraint(['goal_id'], ['goals.id'], ondelete='CASCADE'),
-        sa.Index('ix_goal_krs_goal', 'goal_id'),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.text('CURRENT_TIMESTAMP')),
     )
-    
+    op.create_index('ix_goal_krs_goal', 'goal_krs', ['goal_id'])
+
     # Create task_goals table (many-to-many relationship)
-    op.create_table('task_goals',
-        sa.Column('id', sa.Text(), nullable=False, primary_key=True),
+    op.create_table(
+        'task_goals',
+        sa.Column('id', sa.Text(), primary_key=True, nullable=False),
         sa.Column('task_id', sa.Text(), nullable=False),
         sa.Column('goal_id', sa.Text(), nullable=False),
         sa.Column('weight', sa.Float(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
-        sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['goal_id'], ['goals.id'], ondelete='CASCADE'),
-        sa.Index('ix_task_goals_task', 'task_id'),
-        sa.Index('ix_task_goals_goal', 'goal_id'),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.text('CURRENT_TIMESTAMP')),
     )
+    op.create_index('ix_task_goals_task', 'task_goals', ['task_id'])
+    op.create_index('ix_task_goals_goal', 'task_goals', ['goal_id'])
+    
+    # Optional FKs (commented out until FE stabilizes as requested by tech lead)
+    # op.create_foreign_key(None, 'goal_krs', 'goals', ['goal_id'], ['id'], ondelete='CASCADE')
+    # op.create_foreign_key(None, 'task_goals', 'tasks', ['task_id'], ['id'], ondelete='CASCADE')
+    # op.create_foreign_key(None, 'task_goals', 'goals', ['goal_id'], ['id'], ondelete='CASCADE')
 
 def downgrade():
     op.drop_table('task_goals')

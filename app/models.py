@@ -152,5 +152,5 @@ class TaskGoal(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     
     # Relationships
-    task = relationship("Task")
+    task = relationship("Task", back_populates="goal_links")
     goal = relationship("Goal", back_populates="task_links")
