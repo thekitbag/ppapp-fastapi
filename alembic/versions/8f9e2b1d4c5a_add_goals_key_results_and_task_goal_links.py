@@ -15,14 +15,7 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    # Create goals table
-    op.create_table('goals',
-        sa.Column('id', sa.Text(), nullable=False, primary_key=True),
-        sa.Column('title', sa.Text(), nullable=False),
-        sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('type', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, default=datetime.utcnow),
-    )
+    # Goals table already exists from previous migration, only create the new tables
     
     # Create goal_krs table
     op.create_table('goal_krs',
@@ -47,4 +40,4 @@ def upgrade():
 def downgrade():
     op.drop_table('task_goals')
     op.drop_table('goal_krs')
-    op.drop_table('goals')
+    # Don't drop goals table as it existed before this migration
