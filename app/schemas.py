@@ -115,7 +115,7 @@ class TaskUpdate(BaseModel):
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
     project_id: Optional[str] = None
-    goal_id: Optional[str] = None
+    goal_id: Optional[str] = None  # DEPRECATED: Use task-goal linking API instead
 
 class TaskOut(BaseModel):
     id: str
@@ -127,8 +127,8 @@ class TaskOut(BaseModel):
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     project_id: Optional[str] = None
-    goal_id: Optional[str] = None  # Deprecated - for backward compatibility
-    goals: List[GoalSummary] = []  # New many-to-many goals
+    goal_id: Optional[str] = None  # DEPRECATED: Use goals[] field instead. Kept for backward compatibility.
+    goals: List[GoalSummary] = []  # Many-to-many goals - use this instead of goal_id
     created_at: datetime
     updated_at: datetime
 

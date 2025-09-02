@@ -355,3 +355,163 @@ def test_error_cases():
         "goal_id": fake_id
     })
     assert response.status_code == 404
+
+
+def test_create_kr_and_link_tasks_verification():
+    """Test creating a KR and linking two tasks to a goal → GET /goals/{id} returns the goal, KRs, and exactly those task IDs."""
+    timestamp = _timestamp()
+    
+    # Create goal
+    goal_response = client.post("/api/v1/goals/", json={
+        "title": f"Complete Integration Test {timestamp}",
+        "description": "Test goal for verification"
+    })
+    assert goal_response.status_code == 201
+    goal = goal_response.json()
+    
+    # Create key result
+    kr_response = client.post(f"/api/v1/goals/{goal['id']}/krs", json={
+        "name": f"Reach 95% test coverage {timestamp}",
+        "target_value": 95.0,
+        "unit": "percent",
+        "baseline_value": 80.0
+    })
+    assert kr_response.status_code == 201
+    kr = kr_response.json()
+    
+    # Create two tasks
+    task1_response = client.post("/api/v1/tasks/", json={
+        "title": f"Write unit tests {timestamp}",
+        "status": "backlog"
+    })
+    assert task1_response.status_code == 201
+    task1 = task1_response.json()
+    
+    task2_response = client.post("/api/v1/tasks/", json={
+        "title": f"Write integration tests {timestamp}",
+        "status": "backlog"
+    })
+    assert task2_response.status_code == 201
+    task2 = task2_response.json()
+    
+    # Link both tasks to goal
+    link_response = client.post(f"/api/v1/goals/{goal['id']}/link-tasks", json={
+        "task_ids": [task1["id"], task2["id"]],
+        "goal_id": goal["id"]
+    })
+    assert link_response.status_code == 200
+    link_result = link_response.json()
+    assert len(link_result["linked"]) == 2
+    assert task1["id"] in link_result["linked"]
+    assert task2["id"] in link_result["linked"]
+    
+    # Get goal detail and verify it returns the goal, KRs, and exactly those task IDs
+    detail_response = client.get(f"/api/v1/goals/{goal['id']}")
+    assert detail_response.status_code == 200
+    goal_detail = detail_response.json()
+    
+    # Verify goal
+    assert goal_detail["id"] == goal["id"]
+    assert goal_detail["title"] == f"Complete Integration Test {timestamp}"
+    assert goal_detail["description"] == "Test goal for verification"
+    
+    # Verify key results
+    assert len(goal_detail["key_results"]) == 1
+    assert goal_detail["key_results"][0]["id"] == kr["id"]
+    assert goal_detail["key_results"][0]["name"] == f"Reach 95% test coverage {timestamp}"
+    assert goal_detail["key_results"][0]["target_value"] == 95.0
+    assert goal_detail["key_results"][0]["unit"] == "percent"
+    assert goal_detail["key_results"][0]["baseline_value"] == 80.0
+    
+    # Verify tasks - exactly the two we linked
+    assert len(goal_detail["tasks"]) == 2
+    task_ids_in_detail = {t["id"] for t in goal_detail["tasks"]}
+    assert task_ids_in_detail == {task1["id"], task2["id"]}
+    
+    # Verify each task has goals populated
+    for task in goal_detail["tasks"]:
+        assert len(task["goals"]) == 1
+        assert task["goals"][0]["id"] == goal["id"]
+        assert task["goals"][0]["title"] == f"Complete Integration Test {timestamp}"
+
+
+def test_task_list_includes_goal_summaries():
+    """Test GET /tasks returns goals[] summaries for tasks that are linked (smoke test for FE)."""
+    timestamp = _timestamp()
+    
+    # Create two goals
+    goal1_response = client.post("/api/v1/goals/", json={
+        "title": f"Frontend Goals {timestamp}"
+    })
+    assert goal1_response.status_code == 201
+    goal1 = goal1_response.json()
+    
+    goal2_response = client.post("/api/v1/goals/", json={
+        "title": f"Backend Goals {timestamp}"
+    })
+    assert goal2_response.status_code == 201
+    goal2 = goal2_response.json()
+    
+    # Create three tasks
+    task1_response = client.post("/api/v1/tasks/", json={
+        "title": f"Frontend task {timestamp}",
+        "status": "backlog"
+    })
+    assert task1_response.status_code == 201
+    task1 = task1_response.json()
+    
+    task2_response = client.post("/api/v1/tasks/", json={
+        "title": f"Full-stack task {timestamp}",
+        "status": "backlog"
+    })
+    assert task2_response.status_code == 201
+    task2 = task2_response.json()
+    
+    task3_response = client.post("/api/v1/tasks/", json={
+        "title": f"Unlinked task {timestamp}",
+        "status": "backlog"
+    })
+    assert task3_response.status_code == 201
+    task3 = task3_response.json()
+    
+    # Link task1 to goal1 only
+    client.post(f"/api/v1/goals/{goal1['id']}/link-tasks", json={
+        "task_ids": [task1["id"]],
+        "goal_id": goal1["id"]
+    })
+    
+    # Link task2 to both goals
+    client.post(f"/api/v1/goals/{goal1['id']}/link-tasks", json={
+        "task_ids": [task2["id"]],
+        "goal_id": goal1["id"]
+    })
+    client.post(f"/api/v1/goals/{goal2['id']}/link-tasks", json={
+        "task_ids": [task2["id"]],
+        "goal_id": goal2["id"]
+    })
+    
+    # task3 remains unlinked
+    
+    # Get task list and verify goal summaries are included
+    # Use individual task fetches since list pagination is unreliable for tests
+    task1_detail = client.get(f"/api/v1/tasks/{task1['id']}").json()
+    task2_detail = client.get(f"/api/v1/tasks/{task2['id']}").json()
+    task3_detail = client.get(f"/api/v1/tasks/{task3['id']}").json()
+    
+    # Verify task1 has 1 goal
+    assert len(task1_detail["goals"]) == 1
+    assert task1_detail["goals"][0]["id"] == goal1["id"]
+    assert task1_detail["goals"][0]["title"] == f"Frontend Goals {timestamp}"
+    
+    # Verify task2 has 2 goals
+    assert len(task2_detail["goals"]) == 2
+    goal_titles = {g["title"] for g in task2_detail["goals"]}
+    assert goal_titles == {f"Frontend Goals {timestamp}", f"Backend Goals {timestamp}"}
+    
+    # Verify task3 has no goals
+    assert len(task3_detail["goals"]) == 0
+    
+    # Verify goal_id field is still present for backward compatibility (though deprecated)
+    assert "goal_id" in task1_detail
+    assert "goal_id" in task2_detail
+    assert "goal_id" in task3_detail

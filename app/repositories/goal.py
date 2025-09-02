@@ -35,6 +35,7 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
         return GoalSchema(
             id=goal.id,
             title=goal.title,
+            description=goal.description,
             type=goal.type,
             created_at=goal.created_at
         )
