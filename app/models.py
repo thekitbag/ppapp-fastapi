@@ -67,7 +67,7 @@ class Task(Base):
     
     # Foreign keys
     project_id = Column(String, ForeignKey("projects.id"), nullable=True)
-    goal_id = Column(String, ForeignKey("goals.id"), nullable=True)
+    goal_id = Column(String, ForeignKey("goals.id"), nullable=True)  # Deprecated - keep for backward compatibility
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -76,7 +76,7 @@ class Task(Base):
     # Relationships
     tags = relationship("Tag", secondary=task_tags, back_populates="tasks")
     project = relationship("Project", back_populates="tasks")
-    goal = relationship("Goal", back_populates="tasks")
+    goal_links = relationship("TaskGoal", back_populates="task", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index("ix_tasks_status_sort_order", "status", "sort_order"),
@@ -120,8 +120,37 @@ class Goal(Base):
     
     id = Column(String, primary_key=True)
     title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
     type = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    
+    # Relationships - update to use many-to-many through task_goals
+    key_results = relationship("GoalKR", back_populates="goal", cascade="all, delete-orphan")
+    task_links = relationship("TaskGoal", back_populates="goal", cascade="all, delete-orphan")
+
+class GoalKR(Base):
+    __tablename__ = "goal_krs"
+    
+    id = Column(String, primary_key=True)
+    goal_id = Column(String, ForeignKey("goals.id"), nullable=False)
+    name = Column(Text, nullable=False)
+    target_value = Column(Float, nullable=False)
+    unit = Column(Text, nullable=True)
+    baseline_value = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     
     # Relationships
-    tasks = relationship("Task", back_populates="goal")
+    goal = relationship("Goal", back_populates="key_results")
+
+class TaskGoal(Base):
+    __tablename__ = "task_goals"
+    
+    id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.id"), nullable=False)
+    goal_id = Column(String, ForeignKey("goals.id"), nullable=False)
+    weight = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    task = relationship("Task", back_populates="goal_links")
+    goal = relationship("Goal", back_populates="task_links")

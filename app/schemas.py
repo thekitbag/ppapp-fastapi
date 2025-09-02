@@ -28,17 +28,64 @@ class Project(ProjectBase):
 
 class GoalBase(BaseModel):
     title: str
+    description: Optional[str] = None
     type: Optional[str] = None
 
 class GoalCreate(GoalBase):
     pass
 
-class Goal(GoalBase):
+class GoalUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None
+
+class GoalOut(GoalBase):
     id: str
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+class GoalSummary(BaseModel):
+    id: str
+    title: str
+
+    class Config:
+        from_attributes = True
+
+class KRCreate(BaseModel):
+    name: str
+    target_value: float
+    unit: Optional[str] = None
+    baseline_value: Optional[float] = None
+
+class KROut(BaseModel):
+    id: str
+    goal_id: str
+    name: str
+    target_value: float
+    unit: Optional[str] = None
+    baseline_value: Optional[float] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class TaskGoalLink(BaseModel):
+    task_ids: List[str]
+    goal_id: str
+
+class TaskGoalLinkResponse(BaseModel):
+    linked: List[str]
+    already_linked: List[str]
+
+class GoalDetail(GoalOut):
+    key_results: List[KROut] = []
+    tasks: List['TaskOut'] = []
+
+# Backward compatibility
+class Goal(GoalOut):
+    pass
 
 class TaskBase(BaseModel):
     title: str
@@ -68,7 +115,7 @@ class TaskUpdate(BaseModel):
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
     project_id: Optional[str] = None
-    goal_id: Optional[str] = None
+    goal_id: Optional[str] = None  # DEPRECATED: Use task-goal linking API instead
 
 class TaskOut(BaseModel):
     id: str
@@ -80,7 +127,8 @@ class TaskOut(BaseModel):
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     project_id: Optional[str] = None
-    goal_id: Optional[str] = None
+    goal_id: Optional[str] = None  # DEPRECATED: Use goals[] field instead. Kept for backward compatibility.
+    goals: List[GoalSummary] = []  # Many-to-many goals - use this instead of goal_id
     created_at: datetime
     updated_at: datetime
 

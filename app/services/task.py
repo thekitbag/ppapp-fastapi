@@ -56,7 +56,7 @@ class TaskService(BaseService):
             raise ValidationError("Limit cannot exceed 1000")
         
         tasks = self.task_repo.get_by_status(status or [], skip=skip, limit=limit)
-        return [self.task_repo.to_schema(task) for task in tasks]
+        return self.task_repo.to_schema_batch(tasks)  # Use batch method for better performance
     
     def update_task(self, task_id: str, update_data: Dict[str, Any]) -> TaskOut:
         """Update a task."""
