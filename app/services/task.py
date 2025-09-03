@@ -47,15 +47,20 @@ class TaskService(BaseService):
         self, 
         status: Optional[List[str]] = None,
         skip: int = 0,
-        limit: int = 100
+        limit: Optional[int] = None
     ) -> List[TaskOut]:
-        """List tasks with optional filtering."""
+        """List tasks with optional filtering. Excludes archived by default unless specifically requested."""
         self.logger.debug(f"Listing tasks with status filter: {status}")
         
-        if limit > 1000:
+        # If no status filter provided, exclude archived by default
+        if status is None:
+            status = ["backlog", "doing", "done", "week", "today", "waiting"]
+        
+        # Apply limit validation only if limit is specified
+        if limit is not None and limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
         
-        tasks = self.task_repo.get_by_status(status or [], skip=skip, limit=limit)
+        tasks = self.task_repo.get_by_status(status, skip=skip, limit=limit)
         return self.task_repo.to_schema_batch(tasks)  # Use batch method for better performance
     
     def update_task(self, task_id: str, update_data: Dict[str, Any]) -> TaskOut:

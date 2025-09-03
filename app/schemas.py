@@ -2,7 +2,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 
-Status = Literal["backlog","week", "today", "doing","done", "waiting"]
+Status = Literal["backlog","week", "today", "doing","done", "waiting", "archived"]
+GoalType = Literal["annual", "quarterly", "weekly"]
 
 class ProjectBase(BaseModel):
     name: str
@@ -29,7 +30,7 @@ class Project(ProjectBase):
 class GoalBase(BaseModel):
     title: str
     description: Optional[str] = None
-    type: Optional[str] = None
+    type: Optional[GoalType] = None
 
 class GoalCreate(GoalBase):
     pass
@@ -37,7 +38,7 @@ class GoalCreate(GoalBase):
 class GoalUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    type: Optional[str] = None
+    type: Optional[GoalType] = None
 
 class GoalOut(GoalBase):
     id: str

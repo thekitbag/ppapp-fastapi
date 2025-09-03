@@ -44,5 +44,5 @@ def sample_goal_data():
     """Sample goal data for testing."""
     return {
         "title": "Test Goal",
-        "type": "personal"
+        "type": "quarterly"
     }

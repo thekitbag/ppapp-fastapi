@@ -21,6 +21,7 @@ class StatusEnum(str, enum.Enum):
     week = "week"
     today = "today"
     waiting = "waiting"
+    archived = "archived"
 
 
 class SizeEnum(str, enum.Enum):
@@ -39,6 +40,12 @@ class EnergyEnum(str, enum.Enum):
     neutral = "neutral"
     tired = "tired"
 
+
+class GoalTypeEnum(str, enum.Enum):
+    annual = "annual"
+    quarterly = "quarterly"
+    weekly = "weekly"
+
 class Task(Base):
     __tablename__ = "tasks"
     
@@ -48,7 +55,7 @@ class Task(Base):
     description = Column(Text, nullable=True)
     
     # Status and workflow
-    status = Column(Enum(StatusEnum), default=StatusEnum.backlog, nullable=False)
+    status = Column(Enum(StatusEnum), default=StatusEnum.week, nullable=False)
     size = Column(Enum(SizeEnum), nullable=True)
     effort_minutes = Column(Integer, nullable=True)
     
@@ -121,7 +128,7 @@ class Goal(Base):
     id = Column(String, primary_key=True)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
-    type = Column(String, nullable=True)
+    type = Column(Enum(GoalTypeEnum), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     
     # Relationships - update to use many-to-many through task_goals

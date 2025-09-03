@@ -36,6 +36,6 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
             id=goal.id,
             title=goal.title,
             description=goal.description,
-            type=goal.type,
+            type=(goal.type.value if getattr(goal, 'type', None) is not None else None),
             created_at=goal.created_at
         )

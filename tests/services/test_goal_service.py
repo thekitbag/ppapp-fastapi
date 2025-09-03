@@ -19,12 +19,12 @@ class TestGoalService:
         
         assert isinstance(result, GoalSchema)
         assert result.title == "Test Goal"
-        assert result.type == "personal"
+        assert result.type == "quarterly"
         assert result.id.startswith("goal_")
     
     def test_create_goal_empty_title_fails(self, goal_service):
         """Test goal creation with empty title fails."""
-        goal_create = GoalCreate(title="", type="personal")
+        goal_create = GoalCreate(title="", type="quarterly")
         
         with pytest.raises(ValidationError) as exc_info:
             goal_service.create_goal(goal_create)
@@ -33,7 +33,7 @@ class TestGoalService:
     
     def test_create_goal_whitespace_only_title_fails(self, goal_service):
         """Test goal creation with whitespace-only title fails."""
-        goal_create = GoalCreate(title="   ", type="personal")
+        goal_create = GoalCreate(title="   ", type="quarterly")
         
         with pytest.raises(ValidationError) as exc_info:
             goal_service.create_goal(goal_create)
