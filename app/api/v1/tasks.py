@@ -29,10 +29,10 @@ def create_task(
 def list_tasks(
     status: List[str] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(None, ge=1, le=1000),
     task_service: TaskService = Depends(get_task_service)
 ):
-    """List tasks with optional status filtering."""
+    """List tasks with optional status filtering. Default shows all non-archived tasks."""
     return task_service.list_tasks(status=status, skip=skip, limit=limit)
 
 
