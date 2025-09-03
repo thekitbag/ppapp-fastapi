@@ -35,12 +35,16 @@ def upgrade():
             END $$;
         """)
         
+        # Normalize legacy goal types
         op.execute("UPDATE goals SET type = 'weekly' WHERE type = 'monthly'")
+        op.execute("UPDATE goals SET type = 'quarterly' WHERE type = 'personal'")
         op.execute("ALTER TABLE goals ALTER COLUMN type TYPE goaltypeenum USING type::goaltypeenum")
         op.execute("ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'week'")
     else:
         # SQLite-safe path: Keep TEXT columns, rely on app-level validation
+        # Normalize legacy goal types in SQLite too
         op.execute("UPDATE goals SET type = 'weekly' WHERE type = 'monthly'")
+        op.execute("UPDATE goals SET type = 'quarterly' WHERE type = 'personal'")
         op.execute("UPDATE tasks SET status = 'week' WHERE status = 'backlog'")
         # DB default change omitted for SQLite; ORM default covers new rows
 
