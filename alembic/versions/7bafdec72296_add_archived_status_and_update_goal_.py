@@ -7,39 +7,46 @@ from alembic import op
 import sqlalchemy as sa
 
 def upgrade():
-    # Add 'archived' status to the StatusEnum
-    op.execute("ALTER TYPE statusenum ADD VALUE IF NOT EXISTS 'archived'")
+    """
+    Add archived status and update goal type enum.
+    SQLite path keeps TEXT + app-level validation; Postgres path enforces DB enum.
+    Idempotent on Postgres, no-op for ENUM on SQLite as designed.
+    """
+    bind = op.get_bind()
+    dialect = bind.dialect.name
     
-    # Update Goal.type column to use enum
-    # First, create the enum type for goals
-    op.execute("""
-        DO $$ 
-        BEGIN 
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'goaltypeenum') THEN
-                CREATE TYPE goaltypeenum AS ENUM ('annual', 'quarterly', 'weekly');
-            END IF;
-        END $$;
-    """)
-    
-    # Migrate existing 'monthly' goals to 'weekly' as per requirement
-    op.execute("UPDATE goals SET type = 'weekly' WHERE type = 'monthly'")
-    
-    # Update goals table to use the enum type
-    op.execute("ALTER TABLE goals ALTER COLUMN type TYPE goaltypeenum USING type::goaltypeenum")
-    
-    # Change default task status to 'week'
-    op.execute("ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'week'")
+    if dialect == "postgresql":
+        # PostgreSQL: Use proper ENUM types
+        op.execute("ALTER TYPE statusenum ADD VALUE IF NOT EXISTS 'archived'")
+        
+        op.execute("""
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'goaltypeenum') THEN
+                    CREATE TYPE goaltypeenum AS ENUM ('annual', 'quarterly', 'weekly');
+                END IF;
+            END $$;
+        """)
+        
+        op.execute("UPDATE goals SET type = 'weekly' WHERE type = 'monthly'")
+        op.execute("ALTER TABLE goals ALTER COLUMN type TYPE goaltypeenum USING type::goaltypeenum")
+        op.execute("ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'week'")
+    else:
+        # SQLite-safe path: Keep TEXT columns, rely on app-level validation
+        op.execute("UPDATE goals SET type = 'weekly' WHERE type = 'monthly'")
+        op.execute("UPDATE tasks SET status = 'week' WHERE status = 'backlog'")
+        # DB default change omitted for SQLite; ORM default covers new rows
 
 def downgrade():
-    # Revert default task status to 'backlog'
-    op.execute("ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'backlog'")
+    """Rollback changes with dialect safety."""
+    bind = op.get_bind()
+    dialect = bind.dialect.name
     
-    # Revert Goal.type back to string
-    op.execute("ALTER TABLE goals ALTER COLUMN type TYPE VARCHAR")
-    
-    # Drop the goal type enum
-    op.execute("DROP TYPE IF EXISTS goaltypeenum")
-    
-    # Remove 'archived' from StatusEnum (this is tricky in PostgreSQL, would need to recreate the type)
-    # For safety, we'll leave the enum value but ensure no tasks use it
-    op.execute("UPDATE tasks SET status = 'backlog' WHERE status = 'archived'")
+    if dialect == "postgresql":
+        op.execute("ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'backlog'")
+        op.execute("ALTER TABLE goals ALTER COLUMN type TYPE VARCHAR")
+        op.execute("DROP TYPE IF EXISTS goaltypeenum")
+        op.execute("UPDATE tasks SET status = 'backlog' WHERE status = 'archived'")
+    else:
+        # Best-effort rollback for SQLite
+        op.execute("UPDATE tasks SET status = 'backlog' WHERE status = 'archived'")
