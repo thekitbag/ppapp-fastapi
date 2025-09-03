@@ -1,7 +1,14 @@
+"""add archived status and update goal type enum
+
+Revision ID: 7bafdec72296
+Revises: 8f9e2b1d4c5a
+Create Date: 2025-09-03
+"""
+
 revision = '7bafdec72296'
 down_revision = '8f9e2b1d4c5a'
-branch_labels = 'None'
-depends_on = 'None'
+branch_labels = None
+depends_on = None
 
 from alembic import op
 import sqlalchemy as sa
