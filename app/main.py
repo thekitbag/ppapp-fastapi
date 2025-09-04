@@ -53,11 +53,16 @@ def create_app() -> FastAPI:
     # Include API routes
     app.include_router(api_router)
     
-    # Health check endpoint
+    # Health check endpoints
     @app.get("/")
     async def root():
         """Root endpoint for basic health check."""
         return {"status": "ok", "message": "Personal Productivity API is running"}
+    
+    @app.get("/healthz")
+    async def healthz():
+        """Production health check endpoint."""
+        return {"status": "ok"}
     
     return app
 

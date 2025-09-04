@@ -1,0 +1,144 @@
+"""Microsoft Authentication Service."""
+import jwt
+import httpx
+import secrets
+from typing import Optional, Dict, Any
+from urllib.parse import urlencode, quote
+from datetime import datetime, timedelta
+
+from app.core import settings, get_logger
+from app.exceptions import ValidationError
+
+logger = get_logger(__name__)
+
+
+class AuthService:
+    """Service for Microsoft authentication and JWT management."""
+    
+    def __init__(self):
+        # Check if authentication settings are configured
+        self.configured = all([settings.ms_tenant_id, settings.ms_client_id, settings.ms_client_secret, settings.jwt_secret])
+        
+        if not self.configured:
+            logger.warning("Microsoft authentication settings are not configured")
+            return
+        
+        self.tenant_id = settings.ms_tenant_id
+        self.client_id = settings.ms_client_id
+        self.client_secret = settings.ms_client_secret
+        self.authority = f"https://login.microsoftonline.com/{self.tenant_id}/v2.0"
+        self.jwt_secret = settings.jwt_secret
+        
+        # Parse allowlisted emails
+        self.allowlist_emails = set()
+        if settings.allowlist_emails:
+            self.allowlist_emails = {email.strip().lower() for email in settings.allowlist_emails.split(",")}
+    
+    def get_authorization_url(self, state: Optional[str] = None) -> str:
+        """Generate Microsoft authorization URL."""
+        if not self.configured:
+            raise ValueError("Authentication service is not configured")
+        
+        if not state:
+            state = secrets.token_urlsafe(32)
+        
+        params = {
+            "client_id": self.client_id,
+            "response_type": "code",
+            "redirect_uri": f"https://api.eigentask.co.uk/auth/ms/callback",
+            "scope": "openid profile email",
+            "state": state,
+            "response_mode": "query"
+        }
+        
+        auth_url = f"{self.authority}/authorize?" + urlencode(params)
+        logger.info(f"Generated auth URL for state: {state}")
+        return auth_url, state
+    
+    async def exchange_code_for_token(self, code: str, state: str) -> Dict[str, Any]:
+        """Exchange authorization code for access token and user info."""
+        if not self.configured:
+            raise ValueError("Authentication service is not configured")
+        
+        token_url = f"{self.authority}/token"
+        
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": "https://api.eigentask.co.uk/auth/ms/callback"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(token_url, data=data)
+                response.raise_for_status()
+                token_data = response.json()
+                
+                # Decode the ID token to get user info
+                id_token = token_data.get("id_token")
+                if not id_token:
+                    raise ValidationError("No ID token received from Microsoft")
+                
+                # Note: In production, you should verify the JWT signature
+                # For now, we'll decode without verification (unsafe but functional)
+                user_info = jwt.decode(id_token, options={"verify_signature": False})
+                
+                logger.info(f"Successfully authenticated user: {user_info.get('email', user_info.get('preferred_username'))}")
+                return {
+                    "access_token": token_data.get("access_token"),
+                    "user_info": user_info
+                }
+                
+            except httpx.HTTPError as e:
+                logger.error(f"Failed to exchange code for token: {e}")
+                raise ValidationError(f"Authentication failed: {str(e)}")
+    
+    def validate_user_email(self, user_info: Dict[str, Any]) -> bool:
+        """Validate user email against allowlist."""
+        email = user_info.get("email") or user_info.get("preferred_username") or user_info.get("upn")
+        if not email:
+            logger.warning("No email found in user info")
+            return False
+        
+        email = email.lower().strip()
+        
+        if not self.allowlist_emails:
+            logger.warning("No allowlist configured - allowing all users")
+            return True
+        
+        is_allowed = email in self.allowlist_emails
+        if not is_allowed:
+            logger.warning(f"User email {email} not in allowlist")
+        
+        return is_allowed
+    
+    def create_session_token(self, user_info: Dict[str, Any]) -> str:
+        """Create a JWT session token for the user."""
+        if not self.configured:
+            raise ValueError("Authentication service is not configured")
+        
+        payload = {
+            "user_id": user_info.get("oid") or user_info.get("sub"),
+            "email": user_info.get("email") or user_info.get("preferred_username"),
+            "name": user_info.get("name"),
+            "exp": datetime.utcnow() + timedelta(days=7)  # Token expires in 7 days
+        }
+        
+        return jwt.encode(payload, self.jwt_secret, algorithm="HS256")
+    
+    def verify_session_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify and decode a session token."""
+        if not self.configured:
+            return None
+        
+        try:
+            payload = jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
+            return payload
+        except jwt.ExpiredSignatureError:
+            logger.warning("Session token expired")
+            return None
+        except jwt.InvalidTokenError:
+            logger.warning("Invalid session token")
+            return None

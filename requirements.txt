@@ -17,6 +17,7 @@ markdown-it-py==3.0.0
 MarkupSafe==3.0.2
 mdurl==0.1.2
 orjson==3.11.2
+psycopg2-binary>=2.9
 pydantic==2.7.4
 pydantic_core==2.18.4
 Pygments==2.19.2
@@ -36,3 +37,5 @@ uvicorn==0.30.0
 uvloop==0.21.0
 watchfiles==1.1.0
 websockets==15.0.1
+PyJWT==2.10.1
+alembic==1.14.0
