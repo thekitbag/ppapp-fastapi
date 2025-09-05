@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 
 from app.core import settings, setup_logging, get_logger
 from app.exceptions import AppException, app_exception_handler, general_exception_handler
 from app.api.v1 import api_router
+from app.api.v1 import auth as auth_v1
 from app.db import Base, engine
 
 logger = get_logger(__name__)
@@ -37,13 +39,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     
-    # CORS middleware
+    # CORS middleware - must be exact origins when allow_credentials=True
+    ALLOWED_ORIGINS = [
+        "https://www.eigentask.co.uk",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",  # Common dev port
+    ]
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=settings.cors_allow_credentials,
-        allow_methods=settings.cors_allow_methods,
-        allow_headers=settings.cors_allow_headers,
+        allow_origins=ALLOWED_ORIGINS,  # exact origins only (no "*")
+        allow_credentials=True,         # required for cookies
+        allow_methods=["*"],           # GET, POST, PATCH, DELETE, OPTIONS
+        allow_headers=["*"],           # Authorization, Content-Type, etc.
     )
     
     # Exception handlers
@@ -53,11 +62,34 @@ def create_app() -> FastAPI:
     # Include API routes
     app.include_router(api_router)
     
-    # Health check endpoint
+    # Health check endpoints
     @app.get("/")
     async def root():
         """Root endpoint for basic health check."""
         return {"status": "ok", "message": "Personal Productivity API is running"}
+    
+    @app.get("/healthz")
+    async def healthz():
+        """Production health check endpoint."""
+        return {"status": "ok"}
+    
+    # Auth callback alias routes for Microsoft redirect URIs
+    @app.get("/auth/ms/login")
+    async def ms_login_alias(request: Request, response: Response):
+        """Alias for Microsoft login endpoint."""
+        return await auth_v1.microsoft_login(request, response)
+    
+    @app.get("/auth/ms/callback")
+    async def ms_callback_alias(
+        request: Request,
+        response: Response,
+        code: Optional[str] = None,
+        state: Optional[str] = None,
+        error: Optional[str] = None,
+        oauth_state: Optional[str] = Cookie(None)
+    ):
+        """Alias for Microsoft callback endpoint."""
+        return await auth_v1.microsoft_callback(request, response, code, state, error, oauth_state)
     
     return app
 
