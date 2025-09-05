@@ -26,7 +26,9 @@ class AuthService:
         self.tenant_id = settings.ms_tenant_id
         self.client_id = settings.ms_client_id
         self.client_secret = settings.ms_client_secret
-        self.authority = f"https://login.microsoftonline.com/{self.tenant_id}/v2.0"
+        self.auth_base = f"https://login.microsoftonline.com/{self.tenant_id}"
+        self.authorize_url = f"{self.auth_base}/oauth2/v2.0/authorize"
+        self.token_url = f"{self.auth_base}/oauth2/v2.0/token"
         self.jwt_secret = settings.jwt_secret
         
         # Parse allowlisted emails
@@ -45,13 +47,13 @@ class AuthService:
         params = {
             "client_id": self.client_id,
             "response_type": "code",
-            "redirect_uri": f"https://api.eigentask.co.uk/auth/ms/callback",
-            "scope": "openid profile email",
+            "redirect_uri": "https://api.eigentask.co.uk/auth/ms/callback",
+            "scope": "openid profile email offline_access",
             "state": state,
             "response_mode": "query"
         }
         
-        auth_url = f"{self.authority}/authorize?" + urlencode(params)
+        auth_url = f"{self.authorize_url}?" + urlencode(params)
         logger.info(f"Generated auth URL for state: {state}")
         return auth_url, state
     
@@ -60,7 +62,7 @@ class AuthService:
         if not self.configured:
             raise ValueError("Authentication service is not configured")
         
-        token_url = f"{self.authority}/token"
+        token_url = self.token_url
         
         data = {
             "client_id": self.client_id,

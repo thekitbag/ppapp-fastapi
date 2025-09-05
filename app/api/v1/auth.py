@@ -107,7 +107,6 @@ async def microsoft_callback(
             httponly=True,
             secure=True,
             samesite="none",
-            domain=".eigentask.co.uk",
             max_age=7 * 24 * 60 * 60  # 7 days
         )
         
@@ -142,7 +141,6 @@ async def logout(response: Response):
         httponly=True,
         secure=True,
         samesite="none",
-        domain=".eigentask.co.uk",
         max_age=0
     )
     
