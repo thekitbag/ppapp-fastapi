@@ -130,13 +130,54 @@ class AuthService:
         
         return jwt.encode(payload, self.jwt_secret, algorithm="HS256")
     
+    def create_dev_session_token(self, email: str, name: str) -> str:
+        """Create a session token for local development."""
+        if not settings.jwt_secret:
+            raise ValueError("JWT secret not configured")
+        
+        payload = {
+            "user_id": f"dev-{email}",
+            "email": email,
+            "name": name,
+            "exp": datetime.utcnow() + timedelta(days=7)
+        }
+        
+        return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    
+    def get_cookie_settings(self) -> Dict[str, Any]:
+        """Get cookie settings appropriate for the current environment."""
+        # Determine if we're in local development
+        is_local = settings.environment.lower() in ["development", "local"]
+        
+        cookie_settings = {
+            "httponly": True,
+            "max_age": 7 * 24 * 60 * 60,  # 7 days
+            "path": "/"
+        }
+        
+        if is_local:
+            # Local development over HTTP - DO NOT use Secure or SameSite=None
+            cookie_settings["samesite"] = "lax"
+            cookie_settings["secure"] = False
+            # No domain = host-only cookie
+        else:
+            # Production over HTTPS
+            cookie_settings["samesite"] = "none"
+            cookie_settings["secure"] = True
+            # Add domain if configured
+            if settings.session_cookie_domain:
+                cookie_settings["domain"] = settings.session_cookie_domain
+            
+        return cookie_settings
+    
     def verify_session_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify and decode a session token."""
-        if not self.configured:
+        # For JWT verification, we only need the JWT secret, not full MS auth config
+        if not settings.jwt_secret:
             return None
         
         try:
-            payload = jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
+            payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
             return payload
         except jwt.ExpiredSignatureError:
             logger.warning("Session token expired")
