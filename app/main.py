@@ -39,17 +39,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     
-    # CORS middleware - must be exact origins when allow_credentials=True
-    ALLOWED_ORIGINS = [
-        "https://www.eigentask.co.uk",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",  # Common dev port
-    ]
+    # CORS middleware - environment-specific origins
+    cors_origins = settings.cors_origins
+    
+    # Runtime safety check for production
+    if settings.environment == "production":
+        localhost_origins = [origin for origin in cors_origins if "localhost" in origin or "127.0.0.1" in origin]
+        if localhost_origins:
+            logger.warning(f"Production environment detected with localhost origins: {localhost_origins}")
+    
+    logger.info(f"CORS allowed origins: {cors_origins}")
     
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=ALLOWED_ORIGINS,  # exact origins only (no "*")
+        allow_origins=cors_origins,     # exact origins only (no "*")
         allow_credentials=True,         # required for cookies
         allow_methods=["*"],           # GET, POST, PATCH, DELETE, OPTIONS
         allow_headers=["*"],           # Authorization, Content-Type, etc.

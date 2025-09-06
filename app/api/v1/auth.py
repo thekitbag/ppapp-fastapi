@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Request, Response, HTTPException, Cookie, Depends
 from fastapi.responses import RedirectResponse
 from typing import Optional
+from pydantic import BaseModel
 import secrets
 
 from app.services.auth import AuthService
@@ -9,6 +10,11 @@ from app.core import settings, get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+class DevLoginRequest(BaseModel):
+    email: str
+    name: str
 
 # Global auth service instance (initialized lazily)
 auth_service = None
@@ -99,15 +105,15 @@ async def microsoft_callback(
         # Create session token
         session_token = auth_svc.create_session_token(user_info)
         
-        # Set secure session cookie
+        # Set secure session cookie with environment-specific settings
+        auth_svc = get_auth_service()
+        cookie_settings = auth_svc.get_cookie_settings()
+        
         response = RedirectResponse(url=settings.app_base_url, status_code=302)
         response.set_cookie(
-            key="ppapp_session",
+            key=settings.session_cookie_name,
             value=session_token,
-            httponly=True,
-            secure=True,
-            samesite="none",
-            max_age=7 * 24 * 60 * 60  # 7 days
+            **cookie_settings
         )
         
         # Clear OAuth state cookie
@@ -134,18 +140,53 @@ async def microsoft_callback(
 @router.post("/logout")
 async def logout(response: Response):
     """Logout user by clearing session cookie."""
+    auth_svc = get_auth_service()
+    cookie_settings = auth_svc.get_cookie_settings()
+    cookie_settings["max_age"] = 0  # Clear cookie
+    
     response = Response(status_code=200, content={"status": "logged_out"})
     response.set_cookie(
-        key="ppapp_session",
+        key=settings.session_cookie_name,
         value="",
-        httponly=True,
-        secure=True,
-        samesite="none",
-        max_age=0
+        **cookie_settings
     )
     
     logger.info("User logged out")
     return response
+
+
+@router.post("/dev-login")
+async def dev_login(request: DevLoginRequest, response: Response):
+    """Development-only login endpoint for local testing."""
+    if not settings.auth_dev_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    try:
+        auth_svc = get_auth_service()
+        
+        # Create session token using dev method (doesn't require MS auth to be configured)
+        session_token = auth_svc.create_dev_session_token(request.email, request.name)
+        
+        # Get environment-appropriate cookie settings
+        cookie_settings = auth_svc.get_cookie_settings()
+        
+        # Set session cookie
+        response.set_cookie(
+            key=settings.session_cookie_name,
+            value=session_token,
+            **cookie_settings
+        )
+        
+        logger.info(f"Dev login successful for: {request.email}")
+        return {
+            "status": "success",
+            "message": "Development login successful",
+            "user": {"email": request.email, "name": request.name}
+        }
+        
+    except Exception as e:
+        logger.error(f"Dev login failed: {e}")
+        raise HTTPException(status_code=500, detail="Development login failed")
 
 
 @router.get("/me")
