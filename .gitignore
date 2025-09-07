@@ -22,6 +22,9 @@ app.db
 *.sqlite
 *.sqlite3
 
+# ---- Development artifacts ----
+cookies.txt
+
 # ---- Alembic ----
 alembic/versions/__pycache__/
 alembic/*.pyc

@@ -53,6 +53,31 @@ class GoalService(BaseService):
         goals = self.goal_repo.get_multi(skip=skip, limit=limit)
         return [self.goal_repo.to_schema(goal) for goal in goals]
     
+    def update_goal(self, goal_id: str, goal_update: dict) -> GoalSchema:
+        """Update a goal."""
+        try:
+            self.logger.info(f"Updating goal: {goal_id}")
+            
+            goal = self.goal_repo.get(goal_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+            
+            # Update goal attributes
+            for field, value in goal_update.items():
+                if hasattr(goal, field):
+                    setattr(goal, field, value)
+            
+            self.commit()
+            self.db.refresh(goal)
+            
+            self.logger.info(f"Goal updated successfully: {goal_id}")
+            return self.goal_repo.to_schema(goal)
+            
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to update goal {goal_id}: {str(e)}")
+            raise
+    
     def delete_goal(self, goal_id: str) -> bool:
         """Delete a goal."""
         try:

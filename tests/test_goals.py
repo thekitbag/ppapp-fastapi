@@ -212,8 +212,6 @@ def test_tasks_include_goals_in_response():
     
     # Verify task was created by fetching it individually first
     get_task_response = client.get(f"/api/v1/tasks/{task['id']}")
-    if get_task_response.status_code != 200:
-        print(f"DEBUG: Individual task fetch failed: {get_task_response.status_code} - {get_task_response.text}")
     assert get_task_response.status_code == 200, f"Could not fetch individual task: {get_task_response.text}"
     
     # Link task to goal

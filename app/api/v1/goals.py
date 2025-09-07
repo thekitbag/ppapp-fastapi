@@ -49,22 +49,8 @@ def update_goal(
     goal_service: GoalService = Depends(get_goal_service)
 ):
     """Update a goal."""
-    # TODO: Add update method to GoalService
-    from app.models import Goal
-    from app.exceptions import NotFoundError
-    
-    db = goal_service.db
-    db_goal = db.query(Goal).filter(Goal.id == goal_id).first()
-    if not db_goal:
-        raise NotFoundError("Goal", goal_id)
-    
     update_data = goal_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_goal, field, value)
-    
-    db.commit()
-    db.refresh(db_goal)
-    return goal_service.goal_repo.to_schema(db_goal)
+    return goal_service.update_goal(goal_id, update_data)
 
 
 @router.delete("/{goal_id}", status_code=204)

@@ -61,17 +61,14 @@ def test_goal_linked_factor():
             
         def all(self):
             model_str = str(self.current_model) if self.current_model else ""
-            print(f"DEBUG: Mock DB querying model: {model_str}")
             if "TaskGoal" in model_str:
                 # Return task-goal link only for t2 - make sure goal_id matches the goal created above
                 result = [SimpleNamespace(task_id="Task with goal", goal_id="goal_improve_product")]
-                print(f"DEBUG: Returning TaskGoal links: {[(r.task_id, r.goal_id) for r in result]}")
                 return result
             elif "Goal" in model_str and "TaskGoal" not in model_str:
                 # Return goal objects - make sure the goal has the expected ID
-                print(f"DEBUG: Returning Goal objects: {[(goal.id, goal.title)]}")
                 return [goal]
-            print(f"DEBUG: Returning empty result for model: {model_str}")
+            # Return empty result for other models
             return []
             
         def in_(self, ids):
@@ -80,7 +77,6 @@ def test_goal_linked_factor():
     mock_db = MockDB()
     
     # Debug: Print goal information
-    print(f"DEBUG: Created goal ID: {goal.id}")
     print(f"DEBUG: Created goal title: {goal.title}")
     
     # Test prioritization with goals
