@@ -47,7 +47,7 @@ class AuthService:
         params = {
             "client_id": self.client_id,
             "response_type": "code",
-            "redirect_uri": "https://api.eigentask.co.uk/auth/ms/callback",
+            "redirect_uri": settings.ms_redirect_uri,
             "scope": "openid profile email offline_access",
             "state": state,
             "response_mode": "query"
@@ -69,7 +69,7 @@ class AuthService:
             "client_secret": self.client_secret,
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": "https://api.eigentask.co.uk/auth/ms/callback"
+            "redirect_uri": settings.ms_redirect_uri
         }
         
         async with httpx.AsyncClient() as client:
@@ -83,9 +83,8 @@ class AuthService:
                 if not id_token:
                     raise ValidationError("No ID token received from Microsoft")
                 
-                # Note: In production, you should verify the JWT signature
-                # For now, we'll decode without verification (unsafe but functional)
-                user_info = jwt.decode(id_token, options={"verify_signature": False})
+                # Verify JWT signature for production security
+                user_info = await self._verify_and_decode_jwt(id_token)
                 
                 logger.info(f"Successfully authenticated user: {user_info.get('email', user_info.get('preferred_username'))}")
                 return {
@@ -185,3 +184,62 @@ class AuthService:
         except jwt.InvalidTokenError:
             logger.warning("Invalid session token")
             return None
+    
+    async def _verify_and_decode_jwt(self, id_token: str) -> Dict[str, Any]:
+        """Verify JWT signature using Microsoft's public keys and decode."""
+        import json
+        from jwt.algorithms import RSAAlgorithm
+        
+        try:
+            # For development/testing environments, skip verification
+            if settings.environment.lower() in ["development", "local"]:
+                logger.warning("JWT signature verification disabled for development environment")
+                return jwt.decode(id_token, options={"verify_signature": False})
+            
+            # Get the JWT header to find the key ID
+            unverified_header = jwt.get_unverified_header(id_token)
+            key_id = unverified_header.get("kid")
+            
+            if not key_id:
+                raise ValidationError("JWT token missing key ID")
+            
+            # Fetch Microsoft's public keys
+            jwks_url = f"https://login.microsoftonline.com/{self.tenant_id}/discovery/v2.0/keys"
+            
+            async with httpx.AsyncClient() as client:
+                jwks_response = await client.get(jwks_url)
+                jwks_response.raise_for_status()
+                jwks_data = jwks_response.json()
+            
+            # Find the matching key
+            signing_key = None
+            for key in jwks_data.get("keys", []):
+                if key.get("kid") == key_id:
+                    signing_key = RSAAlgorithm.from_jwk(json.dumps(key))
+                    break
+            
+            if not signing_key:
+                raise ValidationError(f"Unable to find signing key with ID: {key_id}")
+            
+            # Verify and decode the JWT
+            user_info = jwt.decode(
+                id_token,
+                signing_key,
+                algorithms=["RS256"],
+                audience=self.client_id,
+                issuer=f"https://login.microsoftonline.com/{self.tenant_id}/v2.0"
+            )
+            
+            return user_info
+            
+        except jwt.ExpiredSignatureError:
+            raise ValidationError("JWT token has expired")
+        except jwt.InvalidAudienceError:
+            raise ValidationError("JWT token has invalid audience")
+        except jwt.InvalidIssuerError:
+            raise ValidationError("JWT token has invalid issuer")
+        except jwt.InvalidSignatureError:
+            raise ValidationError("JWT token signature verification failed")
+        except Exception as e:
+            logger.error(f"JWT verification failed: {str(e)}")
+            raise ValidationError(f"JWT token verification failed: {str(e)}")
