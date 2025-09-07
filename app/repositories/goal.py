@@ -32,10 +32,13 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
     
     def to_schema(self, goal: Goal) -> GoalSchema:
         """Convert Goal model to Goal schema."""
+        goal_type = getattr(goal, 'type', None)
+        if goal_type is not None and hasattr(goal_type, 'value'):
+            goal_type = goal_type.value
         return GoalSchema(
             id=goal.id,
             title=goal.title,
             description=goal.description,
-            type=(goal.type.value if getattr(goal, 'type', None) is not None else None),
+            type=goal_type,
             created_at=goal.created_at
         )

@@ -140,11 +140,14 @@ class GoalService(BaseService):
             )
             task_out_list.append(task_out)
         
+        goal_type = getattr(goal, 'type', None)
+        if goal_type is not None and hasattr(goal_type, 'value'):
+            goal_type = goal_type.value
         return GoalDetail(
             id=goal.id,
             title=goal.title,
             description=goal.description,
-            type=(goal.type.value if getattr(goal, 'type', None) is not None else None),
+            type=goal_type,
             created_at=goal.created_at,
             key_results=[KROut(
                 id=kr.id,
