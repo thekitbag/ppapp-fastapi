@@ -138,13 +138,13 @@ async def microsoft_callback(
 
 
 @router.post("/logout")
+@router.get("/logout")
 async def logout(response: Response):
     """Logout user by clearing session cookie."""
     auth_svc = get_auth_service()
     cookie_settings = auth_svc.get_cookie_settings()
     cookie_settings["max_age"] = 0  # Clear cookie
     
-    response = Response(status_code=200, content={"status": "logged_out"})
     response.set_cookie(
         key=settings.session_cookie_name,
         value="",
@@ -152,7 +152,7 @@ async def logout(response: Response):
     )
     
     logger.info("User logged out")
-    return response
+    return {"status": "logged_out"}
 
 
 @router.post("/dev-login")
