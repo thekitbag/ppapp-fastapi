@@ -187,8 +187,7 @@ class AuthService:
     
     async def _verify_and_decode_jwt(self, id_token: str) -> Dict[str, Any]:
         """Verify JWT signature using Microsoft's public keys and decode."""
-        import json
-        from jwt.algorithms import RSAAlgorithm
+        from jwt import PyJWKClient
         
         try:
             # For development/testing environments, skip verification
@@ -196,38 +195,29 @@ class AuthService:
                 logger.warning("JWT signature verification disabled for development environment")
                 return jwt.decode(id_token, options={"verify_signature": False})
             
-            # Get the JWT header to find the key ID
-            unverified_header = jwt.get_unverified_header(id_token)
-            key_id = unverified_header.get("kid")
-            
-            if not key_id:
-                raise ValidationError("JWT token missing key ID")
-            
-            # Fetch Microsoft's public keys
-            jwks_url = f"https://login.microsoftonline.com/{self.tenant_id}/discovery/v2.0/keys"
+            # Get OIDC discovery info
+            oidc_discovery_url = f"https://login.microsoftonline.com/{self.tenant_id}/v2.0/.well-known/openid-configuration"
             
             async with httpx.AsyncClient() as client:
-                jwks_response = await client.get(jwks_url)
-                jwks_response.raise_for_status()
-                jwks_data = jwks_response.json()
+                cfg_response = await client.get(oidc_discovery_url, timeout=5)
+                cfg_response.raise_for_status()
+                cfg = cfg_response.json()
             
-            # Find the matching key
-            signing_key = None
-            for key in jwks_data.get("keys", []):
-                if key.get("kid") == key_id:
-                    signing_key = RSAAlgorithm.from_jwk(json.dumps(key))
-                    break
+            jwks_uri = cfg["jwks_uri"]
+            issuer = cfg["issuer"]
             
-            if not signing_key:
-                raise ValidationError(f"Unable to find signing key with ID: {key_id}")
+            # Use PyJWKClient to fetch the appropriate signing key
+            jwk_client = PyJWKClient(jwks_uri)
+            signing_key = jwk_client.get_signing_key_from_jwt(id_token)
             
             # Verify and decode the JWT
             user_info = jwt.decode(
                 id_token,
-                signing_key,
+                signing_key.key,
                 algorithms=["RS256"],
                 audience=self.client_id,
-                issuer=f"https://login.microsoftonline.com/{self.tenant_id}/v2.0"
+                issuer=issuer,
+                options={"require": ["exp", "iat"], "leeway": 60}  # small clock skew
             )
             
             return user_info

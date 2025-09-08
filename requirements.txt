@@ -37,5 +37,6 @@ uvicorn==0.30.0
 uvloop==0.21.0
 watchfiles==1.1.0
 websockets==15.0.1
-PyJWT==2.10.1
+pyjwt[crypto]==2.8.0
+cryptography>=41.0.0
 alembic==1.14.0
