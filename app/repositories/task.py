@@ -141,12 +141,15 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             result.append(TaskOut(
                 id=task.id,
                 title=task.title,
+                description=task.description,
                 status=task.status.value,
                 sort_order=task.sort_order,
                 tags=[tag.name for tag in task.tags],
+                size=task.size.value if task.size else None,
                 effort_minutes=task.effort_minutes,
                 hard_due_at=task.hard_due_at,
                 soft_due_at=task.soft_due_at,
+                energy=task.energy.value if task.energy else None,
                 project_id=task.project_id,
                 goal_id=task.goal_id,  # Keep for backward compatibility
                 goals=[GoalSummary(id=g.id, title=g.title) for g in linked_goals],
@@ -171,12 +174,15 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         return TaskOut(
             id=task.id,
             title=task.title,
+            description=task.description,
             status=task.status.value,
             sort_order=task.sort_order,
             tags=[tag.name for tag in task.tags],
+            size=task.size.value if task.size else None,
             effort_minutes=task.effort_minutes,
             hard_due_at=task.hard_due_at,
             soft_due_at=task.soft_due_at,
+            energy=task.energy.value if task.energy else None,
             project_id=task.project_id,
             goal_id=task.goal_id,  # Keep for backward compatibility
             goals=[GoalSummary(id=g.id, title=g.title) for g in task_goals],

@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 
 Status = Literal["backlog","week", "today", "doing","done", "waiting", "archived"]
 GoalType = Literal["annual", "quarterly", "weekly"]
@@ -118,15 +118,44 @@ class TaskUpdate(BaseModel):
     project_id: Optional[str] = None
     goal_id: Optional[str] = None  # DEPRECATED: Use task-goal linking API instead
 
+    @field_validator("hard_due_at")
+    @classmethod
+    def hard_due_cannot_be_past(cls, v):
+        if v:
+            # Ensure both datetimes are timezone-aware for comparison
+            now = datetime.now(timezone.utc)
+            if v.tzinfo is None:
+                # If the input is naive, assume UTC
+                v = v.replace(tzinfo=timezone.utc)
+            if v < now:
+                raise ValueError("hard_due_at cannot be in the past")
+        return v
+
+    @field_validator("soft_due_at")
+    @classmethod
+    def soft_due_before_hard_due(cls, v, info):
+        if v and (hard := info.data.get("hard_due_at")):
+            # Ensure both datetimes are timezone-aware for comparison
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+            if hard.tzinfo is None:
+                hard = hard.replace(tzinfo=timezone.utc)
+            if v > hard:
+                raise ValueError("soft_due_at cannot be after hard_due_at")
+        return v
+
 class TaskOut(BaseModel):
     id: str
     title: str
+    description: Optional[str] = None
     status: Status
     sort_order: float
     tags: List[str] = []
+    size: Optional[Literal["xs","s","m","l","xl"]] = None
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
+    energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
     project_id: Optional[str] = None
     goal_id: Optional[str] = None  # DEPRECATED: Use goals[] field instead. Kept for backward compatibility.
     goals: List[GoalSummary] = []  # Many-to-many goals - use this instead of goal_id

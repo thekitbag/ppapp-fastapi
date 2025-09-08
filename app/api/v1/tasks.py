@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.db import get_db
 from app.services import TaskService
-from app.schemas import TaskCreate, TaskOut
+from app.schemas import TaskCreate, TaskOut, TaskUpdate
 
 
 router = APIRouter()
@@ -49,11 +49,13 @@ def get_task(
 @router.patch("/{task_id}", response_model=TaskOut)
 def update_task(
     task_id: str,
-    update_data: dict,
+    update_data: TaskUpdate,
     task_service: TaskService = Depends(get_task_service)
 ):
     """Update a task (supports both PUT and PATCH for compatibility)."""
-    return task_service.update_task(task_id, update_data)
+    # Convert pydantic model to dict, excluding None values
+    update_dict = update_data.model_dump(exclude_unset=True)
+    return task_service.update_task(task_id, update_dict)
 
 
 @router.delete("/{task_id}", status_code=204)
