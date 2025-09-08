@@ -35,10 +35,20 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
         goal_type = getattr(goal, 'type', None)
         if goal_type is not None and hasattr(goal_type, 'value'):
             goal_type = goal_type.value
+            
+        goal_status = getattr(goal, 'status', None)
+        if goal_status is not None and hasattr(goal_status, 'value'):
+            goal_status = goal_status.value
+        elif goal_status is None:
+            goal_status = "on_target"
+            
         return GoalSchema(
             id=goal.id,
             title=goal.title,
             description=goal.description,
             type=goal_type,
+            parent_goal_id=goal.parent_goal_id,
+            end_date=goal.end_date,
+            status=goal_status,
             created_at=goal.created_at
         )

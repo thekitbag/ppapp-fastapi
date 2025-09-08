@@ -4,7 +4,7 @@ from typing import List
 
 from app.db import get_db
 from app.services import GoalService
-from app.schemas import GoalCreate, GoalOut, GoalDetail, GoalUpdate, KRCreate, KROut, TaskGoalLink, TaskGoalLinkResponse
+from app.schemas import GoalCreate, GoalOut, GoalDetail, GoalUpdate, KRCreate, KROut, TaskGoalLink, TaskGoalLinkResponse, GoalNode, GoalType
 
 router = APIRouter()
 
@@ -31,6 +31,26 @@ def list_goals(
 ):
     """List all goals."""
     return goal_service.list_goals(skip=skip, limit=limit)
+
+
+# Goals v2: Tree and type endpoints must come before /{goal_id} to avoid conflicts
+@router.get("/tree", response_model=List[GoalNode])
+def get_goals_tree(
+    include_tasks: bool = Query(False, description="Include linked tasks for weekly goals"),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
+    return goal_service.get_goals_tree(include_tasks=include_tasks)
+
+
+@router.get("/by-type", response_model=List[GoalOut])
+def get_goals_by_type(
+    type: GoalType = Query(..., description="Goal type to filter by"),
+    parent_id: str = Query(None, description="Parent goal ID (for quarterly/weekly goals)"),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Get goals filtered by type and optionally by parent for picker UIs."""
+    return goal_service.get_goals_by_type(type, parent_id)
 
 
 @router.get("/{goal_id}", response_model=GoalDetail)
@@ -102,3 +122,5 @@ def unlink_tasks_from_goal(
 ):
     """Unlink tasks from a goal."""
     return goal_service.unlink_tasks_from_goal(goal_id, link_data)
+
+

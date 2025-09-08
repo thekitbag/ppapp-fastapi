@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 Status = Literal["backlog","week", "today", "doing","done", "waiting", "archived"]
 GoalType = Literal["annual", "quarterly", "weekly"]
+GoalStatus = Literal["on_target", "at_risk", "off_target"]
 
 class ProjectBase(BaseModel):
     name: str
@@ -33,16 +34,27 @@ class GoalBase(BaseModel):
     type: Optional[GoalType] = None
 
 class GoalCreate(GoalBase):
-    pass
+    # Goals v2 fields
+    parent_goal_id: Optional[str] = None
+    end_date: Optional[datetime] = None
+    status: Optional[GoalStatus] = "on_target"
 
 class GoalUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     type: Optional[GoalType] = None
+    # Goals v2 fields
+    parent_goal_id: Optional[str] = None
+    end_date: Optional[datetime] = None
+    status: Optional[GoalStatus] = None
 
 class GoalOut(GoalBase):
     id: str
     created_at: datetime
+    # Goals v2 fields
+    parent_goal_id: Optional[str] = None
+    end_date: Optional[datetime] = None
+    status: GoalStatus = "on_target"
 
     class Config:
         from_attributes = True
@@ -83,6 +95,18 @@ class TaskGoalLinkResponse(BaseModel):
 class GoalDetail(GoalOut):
     key_results: List[KROut] = []
     tasks: List['TaskOut'] = []
+
+# Goals v2: Tree and hierarchy schemas
+class GoalNode(GoalOut):
+    """Goal with hierarchical children for tree view"""
+    children: List['GoalNode'] = []
+    # Optional: include tasks for weekly goals when requested
+    tasks: Optional[List['TaskOut']] = None
+
+class GoalsByTypeRequest(BaseModel):
+    """Query parameters for getting goals by type"""
+    type: GoalType
+    parent_id: Optional[str] = None
 
 # Backward compatibility
 class Goal(GoalOut):
