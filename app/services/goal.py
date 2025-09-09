@@ -2,7 +2,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.repositories import GoalRepository
-from app.schemas import GoalCreate, Goal as GoalSchema, GoalDetail, KROut, KRCreate, TaskGoalLink, TaskGoalLinkResponse
+from app.schemas import GoalCreate, Goal as GoalSchema, GoalDetail, KROut, KRCreate, TaskGoalLink, TaskGoalLinkResponse, GoalNode, GoalOut
 from app.exceptions import NotFoundError, ValidationError
 from .base import BaseService
 
@@ -15,12 +15,15 @@ class GoalService(BaseService):
         self.goal_repo = GoalRepository(db)
     
     def create_goal(self, goal_in: GoalCreate) -> GoalSchema:
-        """Create a new goal."""
+        """Create a new goal with hierarchy validation."""
         try:
             self.logger.info(f"Creating goal: {goal_in.title}")
             
             if not goal_in.title or not goal_in.title.strip():
                 raise ValidationError("Goal title cannot be empty")
+            
+            # Goals v2: Validate hierarchy rules
+            self._validate_goal_hierarchy(goal_in.type, goal_in.parent_goal_id)
             
             goal = self.goal_repo.create_with_id(goal_in)
             self.commit()
@@ -54,13 +57,25 @@ class GoalService(BaseService):
         return [self.goal_repo.to_schema(goal) for goal in goals]
     
     def update_goal(self, goal_id: str, goal_update: dict) -> GoalSchema:
-        """Update a goal."""
+        """Update a goal with hierarchy validation."""
         try:
             self.logger.info(f"Updating goal: {goal_id}")
             
             goal = self.goal_repo.get(goal_id)
             if not goal:
                 raise NotFoundError("Goal", goal_id)
+            
+            # Goals v2: Validate hierarchy rules if type or parent is being changed
+            new_type = goal_update.get("type", goal.type.value if goal.type else None)
+            new_parent_id = goal_update.get("parent_goal_id", goal.parent_goal_id)
+            
+            if "type" in goal_update or "parent_goal_id" in goal_update:
+                self._validate_goal_hierarchy(new_type, new_parent_id)
+                
+            # Check for cycles if parent is being changed
+            if "parent_goal_id" in goal_update and new_parent_id:
+                if self._would_create_cycle(goal_id, new_parent_id):
+                    raise ValidationError("Cannot set parent: would create a cycle in the goal hierarchy")
             
             # Update goal attributes
             for field, value in goal_update.items():
@@ -258,16 +273,21 @@ class GoalService(BaseService):
             raise
     
     def link_tasks_to_goal(self, goal_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
-        """Link tasks to a goal."""
+        """Link tasks to a goal. Only weekly goals can have linked tasks."""
         from app.models import Task, TaskGoal
         import uuid
         
         try:
             self.logger.info(f"Linking {len(link_data.task_ids)} tasks to goal: {goal_id}")
             
-            # Verify goal exists
-            if not self.goal_repo.get(goal_id):
+            # Verify goal exists and is weekly
+            goal = self.goal_repo.get(goal_id)
+            if not goal:
                 raise NotFoundError("Goal", goal_id)
+            
+            # Goals v2: Only weekly goals can have tasks
+            if goal.type and goal.type.value != "weekly":
+                raise ValidationError("Only weekly goals can have tasks linked to them. Annual and quarterly goals should link to their child goals instead.")
             
             # Verify tasks exist
             tasks = self.db.query(Task).filter(Task.id.in_(link_data.task_ids)).all()
@@ -348,4 +368,138 @@ class GoalService(BaseService):
         except Exception as e:
             self.rollback()
             self.logger.error(f"Failed to unlink tasks from goal {goal_id}: {str(e)}")
+            raise
+    
+    # Goals v2: Hierarchy and validation methods
+    
+    def _validate_goal_hierarchy(self, goal_type: str, parent_goal_id: str = None):
+        """Validate goal hierarchy rules."""
+        if not goal_type:
+            return  # No validation needed for null type
+            
+        if goal_type == "annual":
+            if parent_goal_id:
+                raise ValidationError("Annual goals cannot have a parent goal")
+        elif goal_type == "quarterly":
+            if not parent_goal_id:
+                raise ValidationError("Quarterly goals must have an annual parent goal")
+            parent = self.goal_repo.get(parent_goal_id)
+            if not parent:
+                raise ValidationError(f"Parent goal not found: {parent_goal_id}")
+            if parent.type.value != "annual":
+                raise ValidationError("Quarterly goals must have an annual parent (not quarterly or weekly)")
+        elif goal_type == "weekly":
+            if not parent_goal_id:
+                raise ValidationError("Weekly goals must have a quarterly parent goal")
+            parent = self.goal_repo.get(parent_goal_id)
+            if not parent:
+                raise ValidationError(f"Parent goal not found: {parent_goal_id}")
+            if parent.type.value != "quarterly":
+                raise ValidationError("Weekly goals must have a quarterly parent (not annual or weekly)")
+    
+    def _would_create_cycle(self, goal_id: str, parent_goal_id: str) -> bool:
+        """Check if setting parent would create a cycle in the hierarchy."""
+        if not parent_goal_id or goal_id == parent_goal_id:
+            return goal_id == parent_goal_id
+            
+        # Walk up the parent chain to see if we reach goal_id
+        current_parent_id = parent_goal_id
+        visited = set()
+        
+        while current_parent_id and current_parent_id not in visited:
+            if current_parent_id == goal_id:
+                return True
+            visited.add(current_parent_id)
+            
+            parent_goal = self.goal_repo.get(current_parent_id)
+            if not parent_goal:
+                break
+            current_parent_id = parent_goal.parent_goal_id
+            
+        return False
+    
+    def get_goals_tree(self, include_tasks: bool = False) -> List[GoalNode]:
+        """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
+        try:
+            self.logger.debug("Building goals tree")
+            from app.models import Goal
+            
+            # Get all goals in one query
+            all_goals = self.db.query(Goal).all()
+            
+            # Build lookup maps
+            goals_by_id = {goal.id: goal for goal in all_goals}
+            children_by_parent = {}
+            
+            for goal in all_goals:
+                parent_id = goal.parent_goal_id
+                if parent_id not in children_by_parent:
+                    children_by_parent[parent_id] = []
+                children_by_parent[parent_id].append(goal)
+            
+            # Get root goals (annual goals with no parent)
+            root_goals = children_by_parent.get(None, [])
+            
+            def build_tree_node(goal) -> GoalNode:
+                # Get children for this goal
+                children_goals = children_by_parent.get(goal.id, [])
+                
+                # Convert to GoalNode
+                node_data = {
+                    "id": goal.id,
+                    "title": goal.title,
+                    "description": goal.description,
+                    "type": goal.type.value if goal.type else None,
+                    "parent_goal_id": goal.parent_goal_id,
+                    "end_date": goal.end_date,
+                    "status": goal.status.value if goal.status else "on_target",
+                    "created_at": goal.created_at,
+                    "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))]
+                }
+                
+                # Add tasks for weekly goals if requested
+                if include_tasks and goal.type and goal.type.value == "weekly":
+                    # Get linked tasks for this weekly goal
+                    task_links = [link.task for link in goal.task_links]
+                    from app.repositories.task import TaskRepository
+                    task_repo = TaskRepository(self.db)
+                    node_data["tasks"] = [task_repo.to_schema(task) for task in task_links]
+                
+                return GoalNode(**node_data)
+            
+            # Build tree starting from root goals (annuals), sorted by end_date then created_at
+            root_goals_sorted = sorted(root_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))
+            tree = [build_tree_node(goal) for goal in root_goals_sorted]
+            
+            self.logger.debug(f"Built goals tree with {len(tree)} root nodes")
+            return tree
+            
+        except Exception as e:
+            self.logger.error(f"Failed to build goals tree: {str(e)}")
+            raise
+    
+    def get_goals_by_type(self, goal_type: str, parent_id: str = None) -> List[GoalOut]:
+        """Get goals filtered by type and optionally by parent."""
+        try:
+            self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}")
+            from app.models import Goal, GoalTypeEnum
+            # Coerce incoming string to Enum for consistent filtering across dialects
+            try:
+                type_enum = GoalTypeEnum(goal_type)
+            except Exception:
+                raise ValidationError("Invalid goal type")
+            query = self.db.query(Goal).filter(Goal.type == type_enum)
+            
+            if parent_id:
+                query = query.filter(Goal.parent_goal_id == parent_id)
+            elif goal_type == "annual":
+                # Annual goals should have no parent
+                query = query.filter(Goal.parent_goal_id.is_(None))
+                
+            goals = query.order_by(Goal.end_date.asc().nullslast(), Goal.created_at.asc()).all()
+            
+            return [self.goal_repo.to_schema(goal) for goal in goals]
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get goals by type {goal_type}: {str(e)}")
             raise

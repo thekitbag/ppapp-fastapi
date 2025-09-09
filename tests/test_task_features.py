@@ -173,19 +173,38 @@ class TestGoalCadence:
     
     def test_create_goal_with_new_cadences(self):
         """Test creating goals with new cadence options."""
-        cadences = ['annual', 'quarterly', 'weekly']
+        # Create annual goal first
+        annual_resp = client.post('/api/v1/goals', json={
+            'title': 'Test annual goal',
+            'type': 'annual'
+        })
+        assert annual_resp.status_code == 201
+        annual_goal = annual_resp.json()
         
-        for cadence in cadences:
-            resp = client.post('/api/v1/goals', json={
-                'title': f'Test {cadence} goal',
-                'type': cadence
-            })
-            assert resp.status_code == 201
-            goal = resp.json()
-            assert goal['type'] == cadence
-            
-            # Clean up
-            client.delete(f'/api/v1/goals/{goal["id"]}')
+        # Create quarterly goal with annual parent
+        quarterly_resp = client.post('/api/v1/goals', json={
+            'title': 'Test quarterly goal',
+            'type': 'quarterly',
+            'parent_goal_id': annual_goal['id']
+        })
+        assert quarterly_resp.status_code == 201
+        quarterly_goal = quarterly_resp.json()
+        assert quarterly_goal['type'] == 'quarterly'
+        
+        # Create weekly goal with quarterly parent
+        weekly_resp = client.post('/api/v1/goals', json={
+            'title': 'Test weekly goal',
+            'type': 'weekly',
+            'parent_goal_id': quarterly_goal['id']
+        })
+        assert weekly_resp.status_code == 201
+        weekly_goal = weekly_resp.json()
+        assert weekly_goal['type'] == 'weekly'
+        
+        # Clean up (delete in reverse order)
+        client.delete(f'/api/v1/goals/{weekly_goal["id"]}')
+        client.delete(f'/api/v1/goals/{quarterly_goal["id"]}')
+        client.delete(f'/api/v1/goals/{annual_goal["id"]}')
     
     def test_invalid_goal_cadence_rejected(self):
         """Test that invalid cadences like 'monthly' are rejected."""
@@ -294,10 +313,26 @@ class TestIntegration:
     
     def test_full_workflow_with_new_features(self):
         """Test a complete workflow using the new features."""
-        # Create a goal with new cadence
+        # Create goal hierarchy: annual -> quarterly -> weekly
+        annual_resp = client.post('/api/v1/goals', json={
+            'title': 'Annual sprint objective',
+            'type': 'annual'
+        })
+        assert annual_resp.status_code == 201
+        annual_goal = annual_resp.json()
+        
+        quarterly_resp = client.post('/api/v1/goals', json={
+            'title': 'Quarterly sprint goal',
+            'type': 'quarterly',
+            'parent_goal_id': annual_goal['id']
+        })
+        assert quarterly_resp.status_code == 201
+        quarterly_goal = quarterly_resp.json()
+        
         goal_resp = client.post('/api/v1/goals', json={
             'title': 'Weekly sprint goal',
-            'type': 'weekly'
+            'type': 'weekly',
+            'parent_goal_id': quarterly_goal['id']
         })
         assert goal_resp.status_code == 201
         goal = goal_resp.json()
@@ -321,6 +356,11 @@ class TestIntegration:
         tasks_resp = client.get('/api/v1/tasks')
         task_ids = {t['id'] for t in tasks_resp.json()}
         assert task['id'] not in task_ids
+        
+        # Clean up goals (delete in reverse order)
+        client.delete(f'/api/v1/goals/{goal["id"]}')
+        client.delete(f'/api/v1/goals/{quarterly_goal["id"]}')
+        client.delete(f'/api/v1/goals/{annual_goal["id"]}')
         
         # But appears in archived list
         archived_resp = client.get('/api/v1/tasks?status=archived')

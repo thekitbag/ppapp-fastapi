@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 Status = Literal["backlog","week", "today", "doing","done", "waiting", "archived"]
 GoalType = Literal["annual", "quarterly", "weekly"]
+GoalStatus = Literal["on_target", "at_risk", "off_target"]
 
 class ProjectBase(BaseModel):
     name: str
@@ -33,16 +34,27 @@ class GoalBase(BaseModel):
     type: Optional[GoalType] = None
 
 class GoalCreate(GoalBase):
-    pass
+    # Goals v2 fields
+    parent_goal_id: Optional[str] = None
+    end_date: Optional[datetime] = None
+    status: Optional[GoalStatus] = "on_target"
 
 class GoalUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     type: Optional[GoalType] = None
+    # Goals v2 fields
+    parent_goal_id: Optional[str] = None
+    end_date: Optional[datetime] = None
+    status: Optional[GoalStatus] = None
 
 class GoalOut(GoalBase):
     id: str
     created_at: datetime
+    # Goals v2 fields
+    parent_goal_id: Optional[str] = None
+    end_date: Optional[datetime] = None
+    status: GoalStatus = "on_target"
 
     class Config:
         from_attributes = True
@@ -81,8 +93,20 @@ class TaskGoalLinkResponse(BaseModel):
     already_linked: List[str]
 
 class GoalDetail(GoalOut):
-    key_results: List[KROut] = []
-    tasks: List['TaskOut'] = []
+    key_results: List[KROut] = Field(default_factory=list)
+    tasks: List['TaskOut'] = Field(default_factory=list)
+
+# Goals v2: Tree and hierarchy schemas
+class GoalNode(GoalOut):
+    """Goal with hierarchical children for tree view"""
+    children: List['GoalNode'] = Field(default_factory=list)
+    # Optional: include tasks for weekly goals when requested
+    tasks: Optional[List['TaskOut']] = None
+
+class GoalsByTypeRequest(BaseModel):
+    """Query parameters for getting goals by type"""
+    type: GoalType
+    parent_id: Optional[str] = None
 
 # Backward compatibility
 class Goal(GoalOut):
@@ -100,7 +124,7 @@ class TaskBase(BaseModel):
     goal_id: Optional[str] = None
 
 class TaskCreate(TaskBase):
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)
     status: Optional[Status] = None
     sort_order: Optional[float] = None
 
@@ -150,7 +174,7 @@ class TaskOut(BaseModel):
     description: Optional[str] = None
     status: Status
     sort_order: float
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)
     size: Optional[Literal["xs","s","m","l","xl"]] = None
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
@@ -158,7 +182,7 @@ class TaskOut(BaseModel):
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
     project_id: Optional[str] = None
     goal_id: Optional[str] = None  # DEPRECATED: Use goals[] field instead. Kept for backward compatibility.
-    goals: List[GoalSummary] = []  # Many-to-many goals - use this instead of goal_id
+    goals: List[GoalSummary] = Field(default_factory=list)  # Many-to-many goals - use this instead of goal_id
     created_at: datetime
     updated_at: datetime
 

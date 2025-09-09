@@ -46,6 +46,12 @@ class GoalTypeEnum(str, enum.Enum):
     quarterly = "quarterly"
     weekly = "weekly"
 
+
+class GoalStatusEnum(str, enum.Enum):
+    on_target = "on_target"
+    at_risk = "at_risk"
+    off_target = "off_target"
+
 class Task(Base):
     __tablename__ = "tasks"
     
@@ -129,11 +135,21 @@ class Goal(Base):
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     type = Column(Enum(GoalTypeEnum), nullable=True)
+    
+    # Goals v2 fields - hierarchy, status, and timing
+    parent_goal_id = Column(String, ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
+    end_date = Column(DateTime(timezone=True), nullable=True)
+    status = Column(Enum(GoalStatusEnum), nullable=False, default=GoalStatusEnum.on_target)
+    
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     
-    # Relationships - update to use many-to-many through task_goals
+    # Relationships
     key_results = relationship("GoalKR", back_populates="goal", cascade="all, delete-orphan")
     task_links = relationship("TaskGoal", back_populates="goal", cascade="all, delete-orphan")
+    
+    # Hierarchy relationships
+    parent = relationship("Goal", remote_side=[id], back_populates="children")
+    children = relationship("Goal", back_populates="parent")
 
 class GoalKR(Base):
     __tablename__ = "goal_krs"

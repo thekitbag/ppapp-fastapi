@@ -16,15 +16,18 @@ def test_create_goal():
     response = client.post("/api/v1/goals/", json={
         "title": f"Improve Retention {timestamp}",
         "description": "Increase user retention rate",
-        "type": "quarterly"
+        "type": "annual"  # Changed to annual since it doesn't need a parent
     })
     assert response.status_code == 201
     goal = response.json()
     assert goal["title"] == f"Improve Retention {timestamp}"
     assert goal["description"] == "Increase user retention rate"
-    assert goal["type"] == "quarterly"
+    assert goal["type"] == "annual"  # Updated assertion
     assert "id" in goal
     assert "created_at" in goal
+    # Goals v2: Check new fields are present
+    assert goal["parent_goal_id"] is None
+    assert goal["status"] == "on_target"  # Default status
 
 def test_list_goals():
     """Test listing goals."""
@@ -521,3 +524,209 @@ def test_task_list_includes_goal_summaries():
     assert "goal_id" in task1_detail
     assert "goal_id" in task2_detail
     assert "goal_id" in task3_detail
+
+
+# Goals v2: Hierarchy and new endpoint tests
+
+def test_goals_v2_hierarchy():
+    """Test Goals v2 hierarchy creation and validation."""
+    timestamp = _timestamp()
+    
+    # Create annual goal
+    annual_response = client.post("/api/v1/goals/", json={
+        "title": f"Annual Goal {timestamp}",
+        "type": "annual",
+        "end_date": "2025-12-31T00:00:00Z",
+        "status": "on_target"
+    })
+    assert annual_response.status_code == 201
+    annual = annual_response.json()
+    assert annual["type"] == "annual"
+    assert annual["parent_goal_id"] is None
+    assert annual["status"] == "on_target"
+    
+    # Create quarterly goal under annual
+    quarterly_response = client.post("/api/v1/goals/", json={
+        "title": f"Q1 Goal {timestamp}",
+        "type": "quarterly",
+        "parent_goal_id": annual["id"],
+        "end_date": "2025-03-31T00:00:00Z",
+        "status": "at_risk"
+    })
+    assert quarterly_response.status_code == 201
+    quarterly = quarterly_response.json()
+    assert quarterly["type"] == "quarterly"
+    assert quarterly["parent_goal_id"] == annual["id"]
+    assert quarterly["status"] == "at_risk"
+    
+    # Create weekly goal under quarterly
+    weekly_response = client.post("/api/v1/goals/", json={
+        "title": f"Week 1 Goal {timestamp}",
+        "type": "weekly",
+        "parent_goal_id": quarterly["id"],
+        "end_date": "2025-01-17T00:00:00Z"
+    })
+    assert weekly_response.status_code == 201
+    weekly = weekly_response.json()
+    assert weekly["type"] == "weekly"
+    assert weekly["parent_goal_id"] == quarterly["id"]
+    assert weekly["status"] == "on_target"  # Default
+
+
+def test_goals_v2_hierarchy_validation():
+    """Test Goals v2 hierarchy validation errors."""
+    timestamp = _timestamp()
+    
+    # Try to create quarterly without parent - should fail
+    response = client.post("/api/v1/goals/", json={
+        "title": f"Orphan Quarterly {timestamp}",
+        "type": "quarterly"
+    })
+    assert response.status_code == 400
+    assert "Quarterly goals must have an annual parent goal" in response.json()["error"]["message"]
+    
+    # Try to create weekly without parent - should fail
+    response = client.post("/api/v1/goals/", json={
+        "title": f"Orphan Weekly {timestamp}",
+        "type": "weekly"
+    })
+    assert response.status_code == 400
+    assert "Weekly goals must have a quarterly parent goal" in response.json()["error"]["message"]
+
+
+def test_goals_v2_tree_endpoint():
+    """Test Goals v2 tree endpoint."""
+    timestamp = _timestamp()
+    
+    # Create hierarchy
+    annual = client.post("/api/v1/goals/", json={
+        "title": f"Tree Annual {timestamp}",
+        "type": "annual"
+    }).json()
+    
+    quarterly = client.post("/api/v1/goals/", json={
+        "title": f"Tree Quarterly {timestamp}",
+        "type": "quarterly", 
+        "parent_goal_id": annual["id"]
+    }).json()
+    
+    weekly = client.post("/api/v1/goals/", json={
+        "title": f"Tree Weekly {timestamp}",
+        "type": "weekly",
+        "parent_goal_id": quarterly["id"]
+    }).json()
+    
+    # Test tree endpoint
+    tree_response = client.get("/api/v1/goals/tree")
+    assert tree_response.status_code == 200
+    tree = tree_response.json()
+    
+    # Find our annual goal in the tree
+    our_annual = None
+    for node in tree:
+        if node["id"] == annual["id"]:
+            our_annual = node
+            break
+    
+    assert our_annual is not None
+    assert len(our_annual["children"]) >= 1
+    
+    # Check quarterly is a child of annual
+    our_quarterly = None
+    for child in our_annual["children"]:
+        if child["id"] == quarterly["id"]:
+            our_quarterly = child
+            break
+    
+    assert our_quarterly is not None
+    assert len(our_quarterly["children"]) >= 1
+    
+    # Check weekly is a child of quarterly
+    our_weekly = None
+    for child in our_quarterly["children"]:
+        if child["id"] == weekly["id"]:
+            our_weekly = child
+            break
+    
+    assert our_weekly is not None
+
+
+def test_goals_v2_by_type_endpoint():
+    """Test Goals v2 by-type endpoint."""
+    timestamp = _timestamp()
+    
+    # Create hierarchy
+    annual = client.post("/api/v1/goals/", json={
+        "title": f"Type Annual {timestamp}",
+        "type": "annual"
+    }).json()
+    
+    quarterly = client.post("/api/v1/goals/", json={
+        "title": f"Type Quarterly {timestamp}",
+        "type": "quarterly",
+        "parent_goal_id": annual["id"]
+    }).json()
+    
+    # Test by-type endpoint
+    annual_response = client.get("/api/v1/goals/by-type?type=annual")
+    assert annual_response.status_code == 200
+    annuals = annual_response.json()
+    assert any(g["id"] == annual["id"] for g in annuals)
+    
+    quarterly_response = client.get(f"/api/v1/goals/by-type?type=quarterly&parent_id={annual['id']}")
+    assert quarterly_response.status_code == 200
+    quarterlies = quarterly_response.json()
+    assert any(g["id"] == quarterly["id"] for g in quarterlies)
+
+
+def test_goals_v2_task_linking_weekly_only():
+    """Test Goals v2 task linking restriction (weekly goals only)."""
+    timestamp = _timestamp()
+    
+    # Create hierarchy
+    annual = client.post("/api/v1/goals/", json={
+        "title": f"Link Annual {timestamp}",
+        "type": "annual"
+    }).json()
+    
+    quarterly = client.post("/api/v1/goals/", json={
+        "title": f"Link Quarterly {timestamp}",
+        "type": "quarterly",
+        "parent_goal_id": annual["id"]
+    }).json()
+    
+    weekly = client.post("/api/v1/goals/", json={
+        "title": f"Link Weekly {timestamp}",
+        "type": "weekly",
+        "parent_goal_id": quarterly["id"]
+    }).json()
+    
+    # Create test task
+    task = client.post("/api/v1/tasks/", json={
+        "title": f"Link Task {timestamp}"
+    }).json()
+    
+    # Try linking to annual - should fail
+    annual_link = client.post(f"/api/v1/goals/{annual['id']}/link-tasks", json={
+        "task_ids": [task["id"]],
+        "goal_id": annual["id"]
+    })
+    assert annual_link.status_code == 400
+    assert "Only weekly goals can have tasks" in annual_link.json()["error"]["message"]
+    
+    # Try linking to quarterly - should fail  
+    quarterly_link = client.post(f"/api/v1/goals/{quarterly['id']}/link-tasks", json={
+        "task_ids": [task["id"]],
+        "goal_id": quarterly["id"]
+    })
+    assert quarterly_link.status_code == 400
+    assert "Only weekly goals can have tasks" in quarterly_link.json()["error"]["message"]
+    
+    # Link to weekly - should succeed
+    weekly_link = client.post(f"/api/v1/goals/{weekly['id']}/link-tasks", json={
+        "task_ids": [task["id"]],
+        "goal_id": weekly["id"]
+    })
+    assert weekly_link.status_code == 200
+    result = weekly_link.json()
+    assert task["id"] in result["linked"]
