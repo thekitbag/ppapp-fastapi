@@ -454,7 +454,7 @@ class GoalService(BaseService):
                     "end_date": goal.end_date,
                     "status": goal.status.value if goal.status else "on_target",
                     "created_at": goal.created_at,
-                    "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (g.end_date or goal.created_at, g.created_at))]
+                    "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))]
                 }
                 
                 # Add tasks for weekly goals if requested
@@ -482,9 +482,13 @@ class GoalService(BaseService):
         """Get goals filtered by type and optionally by parent."""
         try:
             self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}")
-            
-            from app.models import Goal
-            query = self.db.query(Goal).filter(Goal.type == goal_type)
+            from app.models import Goal, GoalTypeEnum
+            # Coerce incoming string to Enum for consistent filtering across dialects
+            try:
+                type_enum = GoalTypeEnum(goal_type)
+            except Exception:
+                raise ValidationError("Invalid goal type")
+            query = self.db.query(Goal).filter(Goal.type == type_enum)
             
             if parent_id:
                 query = query.filter(Goal.parent_goal_id == parent_id)
