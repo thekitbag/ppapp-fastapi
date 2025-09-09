@@ -4,8 +4,15 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.db import Base
 from app import models  # import models so Alembic sees them
+import os
 
 config = context.config
+
+# Override sqlalchemy.url from DATABASE_URL environment variable if available
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
+
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
