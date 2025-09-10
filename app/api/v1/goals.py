@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict, Any
 
 from app.db import get_db
 from app.services import GoalService
 from app.schemas import GoalCreate, GoalOut, GoalDetail, GoalUpdate, KRCreate, KROut, TaskGoalLink, TaskGoalLinkResponse, GoalNode, GoalType
+from app.api.v1.auth import get_current_user_dep
 
 router = APIRouter()
 
@@ -17,69 +18,76 @@ def get_goal_service(db: Session = Depends(get_db)) -> GoalService:
 @router.post("", response_model=GoalOut, status_code=201)
 def create_goal(
     payload: GoalCreate,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Create a new goal."""
-    return goal_service.create_goal(payload)
+    """Create a new goal for authenticated user."""
+    return goal_service.create_goal(payload, current_user["user_id"])
 
 
 @router.get("", response_model=List[GoalOut])
 def list_goals(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """List all goals."""
-    return goal_service.list_goals(skip=skip, limit=limit)
+    """List all goals for authenticated user."""
+    return goal_service.list_goals(current_user["user_id"], skip=skip, limit=limit)
 
 
 # Goals v2: Tree and type endpoints must come before /{goal_id} to avoid conflicts
 @router.get("/tree", response_model=List[GoalNode])
 def get_goals_tree(
     include_tasks: bool = Query(False, description="Include linked tasks for weekly goals"),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
-    return goal_service.get_goals_tree(include_tasks=include_tasks)
+    """Get hierarchical tree of goals (Annual → Quarterly → Weekly) for authenticated user."""
+    return goal_service.get_goals_tree(current_user["user_id"], include_tasks=include_tasks)
 
 
 @router.get("/by-type", response_model=List[GoalOut])
 def get_goals_by_type(
     type: GoalType = Query(..., description="Goal type to filter by"),
     parent_id: str = Query(None, description="Parent goal ID (for quarterly/weekly goals)"),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Get goals filtered by type and optionally by parent for picker UIs."""
-    return goal_service.get_goals_by_type(type, parent_id)
+    """Get goals filtered by type and optionally by parent for picker UIs for authenticated user."""
+    return goal_service.get_goals_by_type(current_user["user_id"], type, parent_id)
 
 
 @router.get("/{goal_id}", response_model=GoalDetail)
 def get_goal(
     goal_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Get a goal with its key results and linked tasks."""
-    return goal_service.get_goal_detail(goal_id)
+    """Get a goal with its key results and linked tasks for authenticated user."""
+    return goal_service.get_goal_detail(goal_id, current_user["user_id"])
 
 
 @router.patch("/{goal_id}", response_model=GoalOut)
 def update_goal(
     goal_id: str,
     goal_update: GoalUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Update a goal."""
+    """Update a goal for authenticated user."""
     update_data = goal_update.dict(exclude_unset=True)
-    return goal_service.update_goal(goal_id, update_data)
+    return goal_service.update_goal(goal_id, current_user["user_id"], update_data)
 
 
 @router.delete("/{goal_id}", status_code=204)
 def delete_goal(
     goal_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Delete a goal."""
-    goal_service.delete_goal(goal_id)
+    """Delete a goal for authenticated user."""
+    goal_service.delete_goal(goal_id, current_user["user_id"])
     return None
 
 
@@ -87,20 +95,22 @@ def delete_goal(
 def create_key_result(
     goal_id: str, 
     kr: KRCreate,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Create a key result for a goal."""
-    return goal_service.create_key_result(goal_id, kr)
+    """Create a key result for a goal for authenticated user."""
+    return goal_service.create_key_result(goal_id, current_user["user_id"], kr)
 
 
 @router.delete("/{goal_id}/krs/{kr_id}", status_code=204)
 def delete_key_result(
     goal_id: str,
     kr_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Delete a key result."""
-    goal_service.delete_key_result(goal_id, kr_id)
+    """Delete a key result for authenticated user."""
+    goal_service.delete_key_result(goal_id, current_user["user_id"], kr_id)
     return None
 
 
@@ -108,19 +118,21 @@ def delete_key_result(
 def link_tasks_to_goal(
     goal_id: str,
     link_data: TaskGoalLink,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Link tasks to a goal."""
-    return goal_service.link_tasks_to_goal(goal_id, link_data)
+    """Link tasks to a goal for authenticated user."""
+    return goal_service.link_tasks_to_goal(goal_id, current_user["user_id"], link_data)
 
 
 @router.delete("/{goal_id}/link-tasks", response_model=TaskGoalLinkResponse)
 def unlink_tasks_from_goal(
     goal_id: str,
     link_data: TaskGoalLink,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """Unlink tasks from a goal."""
-    return goal_service.unlink_tasks_from_goal(goal_id, link_data)
+    """Unlink tasks from a goal for authenticated user."""
+    return goal_service.unlink_tasks_from_goal(goal_id, current_user["user_id"], link_data)
 
 

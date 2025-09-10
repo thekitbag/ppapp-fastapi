@@ -281,14 +281,25 @@ class AuthService:
         
         # Create normalized user info for dev login
         dev_user_info = {
-            "provider": "microsoft",  # Default to microsoft for dev
+            "provider": "microsoft",  # use a valid ProviderEnum value
             "provider_sub": f"dev-{email}",
             "email": email,
-            "name": name
+            "name": name,
         }
         
-        # Use database-backed token creation
-        return self.create_session_token_with_db(dev_user_info)
+        # Upsert user in DB without requiring full OAuth configuration
+        user_id = self.upsert_user_from_token(dev_user_info)
+        
+        # Encode a JWT containing user_id (same shape as create_session_token_with_db)
+        payload = {
+            "user_id": user_id,
+            "provider": dev_user_info["provider"],
+            "provider_sub": dev_user_info["provider_sub"],
+            "email": dev_user_info["email"],
+            "name": dev_user_info["name"],
+            "exp": datetime.utcnow() + timedelta(days=7),
+        }
+        return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
     
     def get_cookie_settings(self) -> Dict[str, Any]:
         """Get cookie settings appropriate for the current environment."""

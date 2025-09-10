@@ -14,7 +14,7 @@ class GoalService(BaseService):
         super().__init__(db)
         self.goal_repo = GoalRepository(db)
     
-    def create_goal(self, goal_in: GoalCreate) -> GoalSchema:
+    def create_goal(self, goal_in: GoalCreate, user_id: str) -> GoalSchema:
         """Create a new goal with hierarchy validation."""
         try:
             self.logger.info(f"Creating goal: {goal_in.title}")
@@ -23,9 +23,9 @@ class GoalService(BaseService):
                 raise ValidationError("Goal title cannot be empty")
             
             # Goals v2: Validate hierarchy rules
-            self._validate_goal_hierarchy(goal_in.type, goal_in.parent_goal_id)
+            self._validate_goal_hierarchy(goal_in.type, goal_in.parent_goal_id, user_id)
             
-            goal = self.goal_repo.create_with_id(goal_in)
+            goal = self.goal_repo.create_with_id(goal_in, user_id)
             self.commit()
             
             self.logger.info(f"Goal created successfully: {goal.id}")
@@ -36,32 +36,32 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to create goal: {str(e)}")
             raise
     
-    def get_goal(self, goal_id: str) -> GoalSchema:
+    def get_goal(self, goal_id: str, user_id: str) -> GoalSchema:
         """Get a goal by ID."""
         self.logger.debug(f"Fetching goal: {goal_id}")
         
-        goal = self.goal_repo.get(goal_id)
+        goal = self.goal_repo.get_by_user(goal_id, user_id)
         if not goal:
             raise NotFoundError("Goal", goal_id)
         
         return self.goal_repo.to_schema(goal)
     
-    def list_goals(self, skip: int = 0, limit: int = 100) -> List[GoalSchema]:
+    def list_goals(self, user_id: str, skip: int = 0, limit: int = 100) -> List[GoalSchema]:
         """List goals."""
         self.logger.debug("Listing goals")
         
         if limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
         
-        goals = self.goal_repo.get_multi(skip=skip, limit=limit)
+        goals = self.goal_repo.get_multi_by_user(user_id, skip=skip, limit=limit)
         return [self.goal_repo.to_schema(goal) for goal in goals]
     
-    def update_goal(self, goal_id: str, goal_update: dict) -> GoalSchema:
+    def update_goal(self, goal_id: str, user_id: str, goal_update: dict) -> GoalSchema:
         """Update a goal with hierarchy validation."""
         try:
             self.logger.info(f"Updating goal: {goal_id}")
             
-            goal = self.goal_repo.get(goal_id)
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
                 raise NotFoundError("Goal", goal_id)
             
@@ -70,7 +70,7 @@ class GoalService(BaseService):
             new_parent_id = goal_update.get("parent_goal_id", goal.parent_goal_id)
             
             if "type" in goal_update or "parent_goal_id" in goal_update:
-                self._validate_goal_hierarchy(new_type, new_parent_id)
+                self._validate_goal_hierarchy(new_type, new_parent_id, user_id)
                 
             # Check for cycles if parent is being changed
             if "parent_goal_id" in goal_update and new_parent_id:
@@ -93,15 +93,15 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to update goal {goal_id}: {str(e)}")
             raise
     
-    def delete_goal(self, goal_id: str) -> bool:
+    def delete_goal(self, goal_id: str, user_id: str) -> bool:
         """Delete a goal."""
         try:
             self.logger.info(f"Deleting goal: {goal_id}")
             
-            if not self.goal_repo.get(goal_id):
+            if not self.goal_repo.get_by_user(goal_id, user_id):
                 raise NotFoundError("Goal", goal_id)
             
-            deleted = self.goal_repo.delete(goal_id)
+            deleted = self.goal_repo.delete_by_user(goal_id, user_id)
             self.commit()
             
             self.logger.info(f"Goal deleted successfully: {goal_id}")
@@ -112,7 +112,7 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to delete goal {goal_id}: {str(e)}")
             raise
     
-    def get_goal_detail(self, goal_id: str) -> GoalDetail:
+    def get_goal_detail(self, goal_id: str, user_id: str) -> GoalDetail:
         """Get a goal with its key results and linked tasks (with batched queries to avoid N+1)."""
         from app.models import Goal, GoalKR, TaskGoal, Task
         from app.schemas import GoalSummary, TaskOut
@@ -120,7 +120,7 @@ class GoalService(BaseService):
         self.logger.debug(f"Fetching goal detail: {goal_id}")
         
         # Get goal
-        goal = self.goal_repo.get(goal_id)
+        goal = self.goal_repo.get_by_user(goal_id, user_id)
         if not goal:
             raise NotFoundError("Goal", goal_id)
         
@@ -201,7 +201,7 @@ class GoalService(BaseService):
             tasks=task_out_list,
         )
     
-    def create_key_result(self, goal_id: str, kr_data: KRCreate) -> KROut:
+    def create_key_result(self, goal_id: str, user_id: str, kr_data: KRCreate) -> KROut:
         """Create a key result for a goal."""
         from app.models import GoalKR
         import uuid
@@ -210,7 +210,7 @@ class GoalService(BaseService):
             self.logger.info(f"Creating key result for goal: {goal_id}")
             
             # Verify goal exists
-            if not self.goal_repo.get(goal_id):
+            if not self.goal_repo.get_by_user(goal_id, user_id):
                 raise NotFoundError("Goal", goal_id)
             
             db_kr = GoalKR(
@@ -220,6 +220,7 @@ class GoalService(BaseService):
                 target_value=kr_data.target_value,
                 unit=kr_data.unit,
                 baseline_value=kr_data.baseline_value,
+                user_id=user_id,
             )
             self.db.add(db_kr)
             self.commit()
@@ -242,7 +243,7 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to create key result for goal {goal_id}: {str(e)}")
             raise
     
-    def delete_key_result(self, goal_id: str, kr_id: str) -> bool:
+    def delete_key_result(self, goal_id: str, user_id: str, kr_id: str) -> bool:
         """Delete a key result."""
         from app.models import GoalKR
         
@@ -250,12 +251,13 @@ class GoalService(BaseService):
             self.logger.info(f"Deleting key result: {kr_id}")
             
             # Verify goal exists
-            if not self.goal_repo.get(goal_id):
+            if not self.goal_repo.get_by_user(goal_id, user_id):
                 raise NotFoundError("Goal", goal_id)
             
             db_kr = self.db.query(GoalKR).filter(
                 GoalKR.id == kr_id, 
-                GoalKR.goal_id == goal_id
+                GoalKR.goal_id == goal_id,
+                GoalKR.user_id == user_id
             ).first()
             
             if not db_kr:
@@ -272,7 +274,7 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to delete key result {kr_id}: {str(e)}")
             raise
     
-    def link_tasks_to_goal(self, goal_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
+    def link_tasks_to_goal(self, goal_id: str, user_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
         """Link tasks to a goal. Only weekly goals can have linked tasks."""
         from app.models import Task, TaskGoal
         import uuid
@@ -281,7 +283,7 @@ class GoalService(BaseService):
             self.logger.info(f"Linking {len(link_data.task_ids)} tasks to goal: {goal_id}")
             
             # Verify goal exists and is weekly
-            goal = self.goal_repo.get(goal_id)
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
                 raise NotFoundError("Goal", goal_id)
             
@@ -289,8 +291,8 @@ class GoalService(BaseService):
             if goal.type and goal.type.value != "weekly":
                 raise ValidationError("Only weekly goals can have tasks linked to them. Annual and quarterly goals should link to their child goals instead.")
             
-            # Verify tasks exist
-            tasks = self.db.query(Task).filter(Task.id.in_(link_data.task_ids)).all()
+            # Verify tasks exist and belong to user
+            tasks = self.db.query(Task).filter(Task.id.in_(link_data.task_ids), Task.user_id == user_id).all()
             task_ids_found = {task.id for task in tasks}
             task_ids_requested = set(link_data.task_ids)
             
@@ -301,7 +303,8 @@ class GoalService(BaseService):
             # Check which tasks are already linked
             existing_links = self.db.query(TaskGoal).filter(
                 TaskGoal.goal_id == goal_id,
-                TaskGoal.task_id.in_(link_data.task_ids)
+                TaskGoal.task_id.in_(link_data.task_ids),
+                TaskGoal.user_id == user_id
             ).all()
             already_linked = {link.task_id for link in existing_links}
             
@@ -314,6 +317,7 @@ class GoalService(BaseService):
                     id=str(uuid.uuid4()),
                     task_id=task_id,
                     goal_id=goal_id,
+                    user_id=user_id,
                 )
                 self.db.add(db_link)
                 linked.append(task_id)
@@ -332,7 +336,7 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to link tasks to goal {goal_id}: {str(e)}")
             raise
     
-    def unlink_tasks_from_goal(self, goal_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
+    def unlink_tasks_from_goal(self, goal_id: str, user_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
         """Unlink tasks from a goal."""
         from app.models import TaskGoal
         
@@ -340,13 +344,14 @@ class GoalService(BaseService):
             self.logger.info(f"Unlinking {len(link_data.task_ids)} tasks from goal: {goal_id}")
             
             # Verify goal exists
-            if not self.goal_repo.get(goal_id):
+            if not self.goal_repo.get_by_user(goal_id, user_id):
                 raise NotFoundError("Goal", goal_id)
             
             # Find existing links to remove
             existing_links = self.db.query(TaskGoal).filter(
                 TaskGoal.goal_id == goal_id,
-                TaskGoal.task_id.in_(link_data.task_ids)
+                TaskGoal.task_id.in_(link_data.task_ids),
+                TaskGoal.user_id == user_id
             ).all()
             
             unlinked = []
@@ -372,7 +377,7 @@ class GoalService(BaseService):
     
     # Goals v2: Hierarchy and validation methods
     
-    def _validate_goal_hierarchy(self, goal_type: str, parent_goal_id: str = None):
+    def _validate_goal_hierarchy(self, goal_type: str, parent_goal_id: str = None, user_id: str = None):
         """Validate goal hierarchy rules."""
         if not goal_type:
             return  # No validation needed for null type
@@ -383,7 +388,7 @@ class GoalService(BaseService):
         elif goal_type == "quarterly":
             if not parent_goal_id:
                 raise ValidationError("Quarterly goals must have an annual parent goal")
-            parent = self.goal_repo.get(parent_goal_id)
+            parent = self.goal_repo.get_by_user(parent_goal_id, user_id) if user_id else self.goal_repo.get(parent_goal_id)
             if not parent:
                 raise ValidationError(f"Parent goal not found: {parent_goal_id}")
             if parent.type.value != "annual":
@@ -391,7 +396,7 @@ class GoalService(BaseService):
         elif goal_type == "weekly":
             if not parent_goal_id:
                 raise ValidationError("Weekly goals must have a quarterly parent goal")
-            parent = self.goal_repo.get(parent_goal_id)
+            parent = self.goal_repo.get_by_user(parent_goal_id, user_id) if user_id else self.goal_repo.get(parent_goal_id)
             if not parent:
                 raise ValidationError(f"Parent goal not found: {parent_goal_id}")
             if parent.type.value != "quarterly":
@@ -418,14 +423,14 @@ class GoalService(BaseService):
             
         return False
     
-    def get_goals_tree(self, include_tasks: bool = False) -> List[GoalNode]:
+    def get_goals_tree(self, user_id: str, include_tasks: bool = False) -> List[GoalNode]:
         """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
         try:
             self.logger.debug("Building goals tree")
             from app.models import Goal
             
-            # Get all goals in one query
-            all_goals = self.db.query(Goal).all()
+            # Get all goals for this user in one query
+            all_goals = self.db.query(Goal).filter(Goal.user_id == user_id).all()
             
             # Build lookup maps
             goals_by_id = {goal.id: goal for goal in all_goals}
@@ -478,7 +483,7 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to build goals tree: {str(e)}")
             raise
     
-    def get_goals_by_type(self, goal_type: str, parent_id: str = None) -> List[GoalOut]:
+    def get_goals_by_type(self, user_id: str, goal_type: str, parent_id: str = None) -> List[GoalOut]:
         """Get goals filtered by type and optionally by parent."""
         try:
             self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}")
@@ -488,7 +493,7 @@ class GoalService(BaseService):
                 type_enum = GoalTypeEnum(goal_type)
             except Exception:
                 raise ValidationError("Invalid goal type")
-            query = self.db.query(Goal).filter(Goal.type == type_enum)
+            query = self.db.query(Goal).filter(Goal.type == type_enum, Goal.user_id == user_id)
             
             if parent_id:
                 query = query.filter(Goal.parent_goal_id == parent_id)

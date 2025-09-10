@@ -65,7 +65,7 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     provider = Column(Enum(ProviderEnum), nullable=False)
     provider_sub = Column(String, nullable=False)  # The stable subject/oid from IdP
-    email = Column(String, nullable=False, index=True)
+    email = Column(String, nullable=False)
     name = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     

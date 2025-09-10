@@ -31,19 +31,21 @@ def get_auth_service() -> AuthService:
 async def microsoft_login(request: Request, response: Response):
     """Initiate Microsoft OAuth login flow."""
     try:
-        # Generate authorization URL with state
+        # Validate configuration
         auth_svc = get_auth_service()
+        if not auth_svc.ms_configured:
+            raise HTTPException(status_code=404, detail="Not found")
+        # Generate authorization URL with state
         auth_url, state = auth_svc.get_ms_authorization_url()
-        
-        # Store state in secure cookie for validation
+
+        # Store state cookie with environment-appropriate security
         response = RedirectResponse(url=auth_url, status_code=302)
+        cookie_settings = auth_svc.get_cookie_settings()
+        cookie_settings["max_age"] = 600  # 10 minutes for oauth_state
         response.set_cookie(
             key="oauth_state",
             value=state,
-            httponly=True,
-            secure=True,
-            samesite="none",
-            max_age=600  # 10 minutes
+            **cookie_settings
         )
         
         logger.info("Redirecting user to Microsoft login")
@@ -65,6 +67,10 @@ async def microsoft_callback(
 ):
     """Handle Microsoft OAuth callback."""
     try:
+        # Validate configuration
+        auth_svc = get_auth_service()
+        if not auth_svc.ms_configured:
+            raise HTTPException(status_code=404, detail="Not found")
         # Check for OAuth errors
         if error:
             logger.error(f"OAuth error: {error}")
@@ -90,7 +96,6 @@ async def microsoft_callback(
             )
         
         # Exchange code for token and user info
-        auth_svc = get_auth_service()
         token_data = await auth_svc.exchange_ms_code_for_token(code, state)
         user_info = token_data["user_info"]
         
@@ -108,7 +113,7 @@ async def microsoft_callback(
         # Set secure session cookie with environment-specific settings
         auth_svc = get_auth_service()
         cookie_settings = auth_svc.get_cookie_settings()
-        
+
         response = RedirectResponse(url=settings.app_base_url, status_code=302)
         response.set_cookie(
             key=settings.session_cookie_name,
@@ -117,13 +122,12 @@ async def microsoft_callback(
         )
         
         # Clear OAuth state cookie
+        cookie_settings = auth_svc.get_cookie_settings()
+        cookie_settings["max_age"] = 0
         response.set_cookie(
             key="oauth_state",
             value="",
-            httponly=True,
-            secure=True,
-            samesite="none",
-            max_age=0
+            **cookie_settings
         )
         
         logger.info(f"Successfully authenticated user: {user_info.get('email')}")
@@ -141,19 +145,21 @@ async def microsoft_callback(
 async def google_login(request: Request, response: Response):
     """Initiate Google OAuth login flow."""
     try:
-        # Generate authorization URL with state
+        # Validate configuration
         auth_svc = get_auth_service()
+        if not auth_svc.google_configured:
+            raise HTTPException(status_code=404, detail="Not found")
+        # Generate authorization URL with state
         auth_url, state = auth_svc.get_google_authorization_url()
         
-        # Store state in secure cookie for validation
+        # Store state cookie with environment-appropriate security
         response = RedirectResponse(url=auth_url, status_code=302)
+        cookie_settings = get_auth_service().get_cookie_settings()
+        cookie_settings["max_age"] = 600
         response.set_cookie(
             key="oauth_state",
             value=state,
-            httponly=True,
-            secure=True,
-            samesite="none",
-            max_age=600  # 10 minutes
+            **cookie_settings
         )
         
         logger.info("Redirecting user to Google login")
@@ -227,13 +233,12 @@ async def google_callback(
         )
         
         # Clear OAuth state cookie
+        cookie_settings = auth_svc.get_cookie_settings()
+        cookie_settings["max_age"] = 0
         response.set_cookie(
             key="oauth_state",
             value="",
-            httponly=True,
-            secure=True,
-            samesite="none",
-            max_age=0
+            **cookie_settings
         )
         
         logger.info(f"Successfully authenticated Google user: {user_info.get('email')}")

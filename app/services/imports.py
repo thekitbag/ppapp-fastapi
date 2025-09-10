@@ -19,7 +19,7 @@ class ImportService(BaseService):
         super().__init__(db)
         self.task_repo = TaskRepository(db)
     
-    def import_from_trello_json(self, json_content: str) -> Dict[str, Any]:
+    def import_from_trello_json(self, json_content: str, user_id: str) -> Dict[str, Any]:
         """Import tasks from Trello JSON export."""
         try:
             trello_data = json.loads(json_content)
@@ -50,7 +50,7 @@ class ImportService(BaseService):
                         card['mapped_status'] = self._map_list_name_to_status(list_name)
                         cards.append(card)
             
-            return self._create_tasks_from_cards(cards)
+            return self._create_tasks_from_cards(cards, user_id)
             
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse Trello JSON: {str(e)}")
@@ -59,7 +59,7 @@ class ImportService(BaseService):
             self.logger.error(f"Failed to import from Trello JSON: {str(e)}")
             raise
     
-    def import_from_trello_csv(self, csv_content: str) -> Dict[str, Any]:
+    def import_from_trello_csv(self, csv_content: str, user_id: str) -> Dict[str, Any]:
         """Import tasks from Trello CSV export."""
         try:
             cards = []
@@ -77,7 +77,7 @@ class ImportService(BaseService):
                 }
                 cards.append(card)
             
-            return self._create_tasks_from_cards(cards)
+            return self._create_tasks_from_cards(cards, user_id)
             
         except Exception as e:
             self.logger.error(f"Failed to import from Trello CSV: {str(e)}")
@@ -102,7 +102,7 @@ class ImportService(BaseService):
             # Default mapping for unknown list names
             return StatusEnum.week.value
     
-    def _create_tasks_from_cards(self, cards: List[Dict]) -> Dict[str, Any]:
+    def _create_tasks_from_cards(self, cards: List[Dict], user_id: str) -> Dict[str, Any]:
         """Create tasks from card data."""
         try:
             imported_tasks = []
@@ -118,7 +118,7 @@ class ImportService(BaseService):
                 )
                 
                 # Create the task
-                task = self.task_repo.create_with_tags(task_data)
+                task = self.task_repo.create_with_tags(task_data, user_id)
                 imported_tasks.append(task)
                 task_ids.append(task.id)
                 
