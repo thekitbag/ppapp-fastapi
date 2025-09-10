@@ -33,6 +33,12 @@ class Settings(BaseModel):
     ms_client_id: Optional[str] = None
     ms_client_secret: Optional[str] = None
     ms_redirect_uri: str = "http://127.0.0.1:8000/auth/ms/callback"  # default for local dev
+    
+    # Google OAuth
+    google_client_id: Optional[str] = None
+    google_client_secret: Optional[str] = None
+    google_redirect_uri: str = "http://127.0.0.1:8000/auth/google/callback"  # default for local dev
+    
     jwt_secret: Optional[str] = None
     allowlist_emails: Optional[str] = None
     app_base_url: str = "http://localhost:3000"
@@ -82,6 +88,9 @@ class Settings(BaseModel):
             ms_client_id=os.getenv("MS_CLIENT_ID"),
             ms_client_secret=os.getenv("MS_CLIENT_SECRET"),
             ms_redirect_uri=os.getenv("MS_REDIRECT_URI", "http://127.0.0.1:8000/auth/ms/callback"),
+            google_client_id=os.getenv("GOOGLE_CLIENT_ID"),
+            google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+            google_redirect_uri=os.getenv("GOOGLE_REDIRECT_URI", "http://127.0.0.1:8000/auth/google/callback"),
             jwt_secret=os.getenv("JWT_SECRET"),
             allowlist_emails=os.getenv("ALLOWLIST_EMAILS"),
             app_base_url=os.getenv("APP_BASE_URL", "http://localhost:3000"),
