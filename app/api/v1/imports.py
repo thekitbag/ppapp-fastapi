@@ -7,6 +7,7 @@ import io
 
 from app.db import get_db
 from app.services.imports import ImportService
+from app.api.v1.auth import get_current_user_dep
 
 router = APIRouter()
 
@@ -19,9 +20,10 @@ def get_import_service(db: Session = Depends(get_db)) -> ImportService:
 @router.post("/trello")
 def import_trello(
     file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
     import_service: ImportService = Depends(get_import_service)
 ):
-    """Import tasks from Trello export file (JSON or CSV format)."""
+    """Import tasks from Trello export file (JSON or CSV format) for authenticated user."""
     
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -38,9 +40,9 @@ def import_trello(
         content = file.file.read().decode('utf-8')
         
         if file_extension == 'json':
-            result = import_service.import_from_trello_json(content)
+            result = import_service.import_from_trello_json(content, current_user["user_id"])
         else:  # csv
-            result = import_service.import_from_trello_csv(content)
+            result = import_service.import_from_trello_csv(content, current_user["user_id"])
         
         return {
             "message": "Import completed successfully",

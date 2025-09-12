@@ -21,22 +21,22 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         """Generate unique ID with prefix."""
         return f"{prefix}_{uuid.uuid4()}"
     
-    def get_or_create_tag(self, name: str) -> Tag:
-        """Get existing tag or create new one."""
+    def get_or_create_tag(self, name: str, user_id: str) -> Tag:
+        """Get existing tag for user or create new one."""
         tag = self.db.execute(
-            select(Tag).where(Tag.name == name)
+            select(Tag).where(Tag.name == name, Tag.user_id == user_id)
         ).scalar_one_or_none()
         
         if tag:
             return tag
             
-        tag = Tag(id=self._gen_id("tag"), name=name)
+        tag = Tag(id=self._gen_id("tag"), name=name, user_id=user_id)
         self.db.add(tag)
         self.db.flush()
         return tag
     
-    def create_with_tags(self, task_in: TaskCreate) -> Task:
-        """Create task with tags."""
+    def create_with_tags(self, task_in: TaskCreate, user_id: str) -> Task:
+        """Create task with tags for specific user."""
         task_data = task_in.model_dump(exclude={"tags"})
         
         # Set sort_order if not provided - use current timestamp in milliseconds
@@ -45,22 +45,23 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         
         task = Task(
             id=self._gen_id("task"),
+            user_id=user_id,  # Set user_id for multi-tenancy
             **task_data
         )
         
         self.db.add(task)
         
         if task_in.tags:
-            tags = [self.get_or_create_tag(tag_name) for tag_name in task_in.tags]
+            tags = [self.get_or_create_tag(tag_name, user_id) for tag_name in task_in.tags]
             task.tags = tags
         
         self.db.flush()
         self.db.refresh(task)
         return task
     
-    def update_with_tags(self, task_id: str, update_data: dict) -> Task:
-        """Update task including tags."""
-        task = self.get(task_id)
+    def update_with_tags(self, task_id: str, user_id: str, update_data: dict) -> Task:
+        """Update task including tags for specific user."""
+        task = self.get_by_user(task_id, user_id)
         if not task:
             raise NotFoundError("Task", task_id)
         
@@ -68,7 +69,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         if "tags" in update_data:
             tag_names = update_data.pop("tags")
             if tag_names is not None:
-                tags = [self.get_or_create_tag(name) for name in tag_names]
+                tags = [self.get_or_create_tag(name, user_id) for name in tag_names]
                 task.tags = tags
         
         # Update other fields with proper type conversion
@@ -88,20 +89,34 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         self.db.refresh(task)
         return task
     
-    def get_by_status(self, status: List[str], skip: int = 0, limit: int = 100) -> List[Task]:
-        """Get tasks filtered by status."""
-        query = select(Task)
+    def get_by_user(self, task_id: str, user_id: str) -> Optional[Task]:
+        """Get a task by ID for specific user."""
+        return self.db.execute(
+            select(Task).where(Task.id == task_id, Task.user_id == user_id)
+        ).scalar_one_or_none()
+    
+    def get_by_status(self, user_id: str, status: List[str], skip: int = 0, limit: int = 100) -> List[Task]:
+        """Get tasks filtered by status for specific user."""
+        query = select(Task).where(Task.user_id == user_id)
         if status:  # Only filter if status list is not empty
             query = query.where(Task.status.in_(status))
         
-        # Add some debug logging
         result = self.db.execute(
-            query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.desc())  # Show newest tasks first
+            query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.desc())
             .offset(skip)
             .limit(limit)
         ).scalars().all()
         
         return result
+    
+    def delete_by_user(self, task_id: str, user_id: str) -> bool:
+        """Delete a task by ID for specific user."""
+        task = self.get_by_user(task_id, user_id)
+        if not task:
+            return False
+        
+        self.db.delete(task)
+        return True
     
     def to_schema_batch(self, tasks: List[Task]) -> List[TaskOut]:
         """Convert multiple Task models to TaskOut schemas efficiently (avoids N+1 queries)."""
@@ -114,8 +129,11 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         # Get all task IDs
         task_ids = [task.id for task in tasks]
         
-        # Batch fetch all task-goal links
-        task_goal_links = self.db.query(TaskGoal).filter(TaskGoal.task_id.in_(task_ids)).all()
+        # Batch fetch all task-goal links for this user only
+        task_goal_links = self.db.query(TaskGoal).filter(
+            TaskGoal.task_id.in_(task_ids),
+            TaskGoal.user_id == tasks[0].user_id  # All tasks should belong to same user
+        ).all()
         
         # Group links by task_id
         task_goals_map = {}
@@ -126,10 +144,13 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             task_goals_map[link.task_id].append(link.goal_id)
             goal_ids.add(link.goal_id)
         
-        # Batch fetch all goals
+        # Batch fetch all goals for this user only
         goals_dict = {}
         if goal_ids:
-            goals = self.db.query(Goal).filter(Goal.id.in_(goal_ids)).all()
+            goals = self.db.query(Goal).filter(
+                Goal.id.in_(goal_ids),
+                Goal.user_id == tasks[0].user_id
+            ).all()
             goals_dict = {goal.id: goal for goal in goals}
         
         # Build TaskOut objects
@@ -144,7 +165,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
                 description=task.description,
                 status=task.status.value,
                 sort_order=task.sort_order,
-                tags=[tag.name for tag in task.tags],
+                tags=sorted([tag.name for tag in task.tags], reverse=True),
                 size=task.size.value if task.size else None,
                 effort_minutes=task.effort_minutes,
                 hard_due_at=task.hard_due_at,
@@ -165,11 +186,17 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         from app.models import TaskGoal, Goal  # Import here to avoid circular imports
         from app.schemas import GoalSummary
         
-        task_goal_links = self.db.query(TaskGoal).filter(TaskGoal.task_id == task.id).all()
+        task_goal_links = self.db.query(TaskGoal).filter(
+            TaskGoal.task_id == task.id,
+            TaskGoal.user_id == task.user_id
+        ).all()
         goal_ids = [link.goal_id for link in task_goal_links]
         task_goals = []
         if goal_ids:
-            task_goals = self.db.query(Goal).filter(Goal.id.in_(goal_ids)).all()
+            task_goals = self.db.query(Goal).filter(
+                Goal.id.in_(goal_ids),
+                Goal.user_id == task.user_id
+            ).all()
         
         return TaskOut(
             id=task.id,
@@ -177,7 +204,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             description=task.description,
             status=task.status.value,
             sort_order=task.sort_order,
-            tags=[tag.name for tag in task.tags],
+            tags=sorted([tag.name for tag in task.tags], reverse=True),
             size=task.size.value if task.size else None,
             effort_minutes=task.effort_minutes,
             hard_due_at=task.hard_due_at,

@@ -19,6 +19,7 @@ env/
 
 # ---- Databases ----
 app.db
+test.db
 *.sqlite
 *.sqlite3
 

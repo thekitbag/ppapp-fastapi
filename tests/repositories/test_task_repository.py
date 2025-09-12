@@ -1,7 +1,7 @@
 import pytest
 from app.repositories.task import TaskRepository
 from app.schemas import TaskCreate
-from app.models import Task, Tag
+from app.models import Task, Tag, User, ProviderEnum
 from app.exceptions import NotFoundError
 
 
@@ -13,10 +13,24 @@ class TestTaskRepository:
         """Create TaskRepository instance with test database."""
         return TaskRepository(test_db)
     
-    def test_create_with_tags_success(self, task_repo, sample_task_data):
+    @pytest.fixture
+    def test_user(self, test_db):
+        """Create test user."""
+        user = User(
+            id="test-user-id",
+            provider=ProviderEnum.microsoft,
+            provider_sub="test-sub",
+            email="test@example.com",
+            name="Test User"
+        )
+        test_db.add(user)
+        test_db.commit()
+        return user
+    
+    def test_create_with_tags_success(self, task_repo, sample_task_data, test_user):
         """Test creating task with tags."""
         task_create = TaskCreate(**sample_task_data)
-        result = task_repo.create_with_tags(task_create)
+        result = task_repo.create_with_tags(task_create, test_user.id)
         
         assert isinstance(result, Task)
         assert result.title == "Test Task"
@@ -25,17 +39,17 @@ class TestTaskRepository:
         assert "test" in tag_names
         assert "sample" in tag_names
     
-    def test_create_with_tags_reuses_existing_tags(self, task_repo, test_db, sample_task_data):
+    def test_create_with_tags_reuses_existing_tags(self, task_repo, test_db, sample_task_data, test_user):
         """Test that creating tasks reuses existing tags."""
         # Create first task with tags
         task_create1 = TaskCreate(**sample_task_data)
-        task1 = task_repo.create_with_tags(task_create1)
+        task1 = task_repo.create_with_tags(task_create1, test_user.id)
         
         # Create second task with same tags
         data2 = sample_task_data.copy()
         data2["title"] = "Task 2"
         task_create2 = TaskCreate(**data2)
-        task2 = task_repo.create_with_tags(task_create2)
+        task2 = task_repo.create_with_tags(task_create2, test_user.id)
         
         # Check that tags are reused (same tag objects)
         task1_tag_ids = {tag.id for tag in task1.tags}
@@ -46,9 +60,9 @@ class TestTaskRepository:
         total_tags = test_db.query(Tag).count()
         assert total_tags == 2  # Only 2 unique tags should exist
     
-    def test_get_or_create_tag_creates_new(self, task_repo, test_db):
+    def test_get_or_create_tag_creates_new(self, task_repo, test_db, test_user):
         """Test get_or_create_tag creates new tag when it doesn't exist."""
-        tag = task_repo.get_or_create_tag("new_tag")
+        tag = task_repo.get_or_create_tag("new_tag", test_user.id)
         
         assert isinstance(tag, Tag)
         assert tag.name == "new_tag"
@@ -59,13 +73,13 @@ class TestTaskRepository:
         assert db_tag is not None
         assert db_tag.id == tag.id
     
-    def test_get_or_create_tag_returns_existing(self, task_repo, test_db):
+    def test_get_or_create_tag_returns_existing(self, task_repo, test_db, test_user):
         """Test get_or_create_tag returns existing tag."""
         # Create tag first
-        tag1 = task_repo.get_or_create_tag("existing_tag")
+        tag1 = task_repo.get_or_create_tag("existing_tag", test_user.id)
         
         # Try to create same tag again
-        tag2 = task_repo.get_or_create_tag("existing_tag")
+        tag2 = task_repo.get_or_create_tag("existing_tag", test_user.id)
         
         # Should return the same tag
         assert tag1.id == tag2.id
@@ -75,11 +89,11 @@ class TestTaskRepository:
         tag_count = test_db.query(Tag).filter(Tag.name == "existing_tag").count()
         assert tag_count == 1
     
-    def test_update_with_tags_success(self, task_repo, sample_task_data):
+    def test_update_with_tags_success(self, task_repo, sample_task_data, test_user):
         """Test updating task with tags."""
         # Create task first
         task_create = TaskCreate(**sample_task_data)
-        task = task_repo.create_with_tags(task_create)
+        task = task_repo.create_with_tags(task_create, test_user.id)
         
         # Update task
         update_data = {
@@ -87,7 +101,7 @@ class TestTaskRepository:
             "status": "doing",
             "tags": ["updated", "modified"]
         }
-        result = task_repo.update_with_tags(task.id, update_data)
+        result = task_repo.update_with_tags(task.id, test_user.id, update_data)
         
         assert result.title == "Updated Task"
         assert result.status.value == "doing"
@@ -96,33 +110,33 @@ class TestTaskRepository:
         assert "updated" in tag_names
         assert "modified" in tag_names
     
-    def test_update_with_tags_not_found(self, task_repo):
+    def test_update_with_tags_not_found(self, task_repo, test_user):
         """Test updating non-existent task raises NotFoundError."""
         update_data = {"title": "Updated Task"}
         
         with pytest.raises(NotFoundError):
-            task_repo.update_with_tags("nonexistent_id", update_data)
+            task_repo.update_with_tags("nonexistent_id", test_user.id, update_data)
     
-    def test_get_by_status_single_status(self, task_repo, sample_task_data):
+    def test_get_by_status_single_status(self, task_repo, sample_task_data, test_user):
         """Test getting tasks by single status."""
         # Create tasks with different statuses
         data1 = sample_task_data.copy()
         data1["status"] = "backlog"
-        task1 = task_repo.create_with_tags(TaskCreate(**data1))
+        task1 = task_repo.create_with_tags(TaskCreate(**data1), test_user.id)
         
         data2 = sample_task_data.copy()
         data2["title"] = "Week Task"
         data2["status"] = "week"
-        task2 = task_repo.create_with_tags(TaskCreate(**data2))
+        task2 = task_repo.create_with_tags(TaskCreate(**data2), test_user.id)
         
         # Get tasks with specific status
-        result = task_repo.get_by_status(["week"])
+        result = task_repo.get_by_status(test_user.id, ["week"])
         
         assert len(result) == 1
         assert result[0].id == task2.id
         assert result[0].title == "Week Task"
     
-    def test_get_by_status_multiple_statuses(self, task_repo, sample_task_data):
+    def test_get_by_status_multiple_statuses(self, task_repo, sample_task_data, test_user):
         """Test getting tasks by multiple statuses."""
         # Create tasks with different statuses
         statuses = ["backlog", "week", "doing"]
@@ -132,11 +146,11 @@ class TestTaskRepository:
             data = sample_task_data.copy()
             data["title"] = f"Task {i}"
             data["status"] = status
-            task = task_repo.create_with_tags(TaskCreate(**data))
+            task = task_repo.create_with_tags(TaskCreate(**data), test_user.id)
             tasks.append(task)
         
         # Get tasks with multiple statuses
-        result = task_repo.get_by_status(["backlog", "week"])
+        result = task_repo.get_by_status(test_user.id, ["backlog", "week"])
         
         assert len(result) == 2
         result_statuses = [task.status.value for task in result]
@@ -144,11 +158,11 @@ class TestTaskRepository:
         assert "week" in result_statuses
         assert "doing" not in result_statuses
     
-    def test_to_schema_conversion(self, task_repo, sample_task_data):
+    def test_to_schema_conversion(self, task_repo, sample_task_data, test_user):
         """Test converting Task model to TaskOut schema."""
         # Create task
         task_create = TaskCreate(**sample_task_data)
-        task = task_repo.create_with_tags(task_create)
+        task = task_repo.create_with_tags(task_create, test_user.id)
         
         # Convert to schema
         task_out = task_repo.to_schema(task)

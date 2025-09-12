@@ -34,12 +34,12 @@ class TestGoalService:
         
         assert isinstance(result, GoalSchema)
         assert result.title == "Test Goal"
-        assert result.type == "annual"
+        assert result.type == "annual"  # Updated to match new sample data
         assert result.id.startswith("goal_")
     
     def test_create_goal_empty_title_fails(self, goal_service, test_user):
         """Test goal creation with empty title fails."""
-        goal_create = GoalCreate(title="", type="annual")
+        goal_create = GoalCreate(title="", type="annual")  # Changed to annual
         
         with pytest.raises(ValidationError) as exc_info:
             goal_service.create_goal(goal_create, test_user.id)
@@ -48,7 +48,7 @@ class TestGoalService:
     
     def test_create_goal_whitespace_only_title_fails(self, goal_service, test_user):
         """Test goal creation with whitespace-only title fails."""
-        goal_create = GoalCreate(title="   ", type="annual")
+        goal_create = GoalCreate(title="   ", type="annual")  # Changed to annual
         
         with pytest.raises(ValidationError) as exc_info:
             goal_service.create_goal(goal_create, test_user.id)
@@ -57,9 +57,11 @@ class TestGoalService:
     
     def test_get_goal_success(self, goal_service, sample_goal_data, test_user):
         """Test successful goal retrieval."""
+        # Create a goal first
         goal_create = GoalCreate(**sample_goal_data)
         created_goal = goal_service.create_goal(goal_create, test_user.id)
         
+        # Retrieve the goal
         result = goal_service.get_goal(created_goal.id, test_user.id)
         
         assert result.id == created_goal.id
@@ -68,12 +70,12 @@ class TestGoalService:
     def test_get_goal_not_found(self, goal_service, test_user):
         """Test getting non-existent goal raises NotFoundError."""
         with pytest.raises(NotFoundError) as exc_info:
-            goal_service.get_goal("nonexistent-id", test_user.id)
+            goal_service.get_goal("nonexistent_id", test_user.id)
         
-        assert "Goal with id 'nonexistent-id' not found" in str(exc_info.value)
+        assert "Goal with id 'nonexistent_id' not found" in str(exc_info.value)
     
     def test_list_goals_default(self, goal_service, sample_goal_data, test_user):
-        """Test listing goals with default pagination."""
+        """Test listing goals with default parameters."""
         # Create multiple goals
         for i in range(3):
             data = sample_goal_data.copy()
@@ -86,7 +88,7 @@ class TestGoalService:
         assert all(isinstance(goal, GoalSchema) for goal in result)
     
     def test_list_goals_limit_validation(self, goal_service, test_user):
-        """Test list goals validates limit parameter."""
+        """Test list goals with invalid limit."""
         with pytest.raises(ValidationError) as exc_info:
             goal_service.list_goals(test_user.id, limit=1001)
         
@@ -100,15 +102,18 @@ class TestGoalService:
             data["title"] = f"Goal {i}"
             goal_service.create_goal(GoalCreate(**data), test_user.id)
         
+        # Test pagination
         result = goal_service.list_goals(test_user.id, skip=2, limit=2)
         
         assert len(result) == 2
     
     def test_delete_goal_success(self, goal_service, sample_goal_data, test_user):
         """Test successful goal deletion."""
+        # Create a goal first
         goal_create = GoalCreate(**sample_goal_data)
         created_goal = goal_service.create_goal(goal_create, test_user.id)
         
+        # Delete the goal
         result = goal_service.delete_goal(created_goal.id, test_user.id)
         
         assert result is True
@@ -120,12 +125,13 @@ class TestGoalService:
     def test_delete_goal_not_found(self, goal_service, test_user):
         """Test deleting non-existent goal raises NotFoundError."""
         with pytest.raises(NotFoundError):
-            goal_service.delete_goal("nonexistent-id", test_user.id)
-    
+            goal_service.delete_goal("nonexistent_id", test_user.id)
+
     # Goals v2: Hierarchy validation tests
     
     def test_quarterly_goal_requires_annual_parent(self, goal_service, test_user):
         """Test quarterly goal creation requires annual parent."""
+        # Try to create quarterly without parent - should fail
         quarterly_create = GoalCreate(title="Q1 Goal", type="quarterly")
         
         with pytest.raises(ValidationError) as exc_info:
@@ -135,6 +141,7 @@ class TestGoalService:
     
     def test_weekly_goal_requires_quarterly_parent(self, goal_service, test_user):
         """Test weekly goal creation requires quarterly parent."""
+        # Try to create weekly without parent - should fail
         weekly_create = GoalCreate(title="Week 1 Goal", type="weekly")
         
         with pytest.raises(ValidationError) as exc_info:

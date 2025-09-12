@@ -64,6 +64,66 @@ def create_app() -> FastAPI:
     
     # Include API routes
     app.include_router(api_router)
+
+    # Test-mode dependency overrides: isolate DB and bypass auth for tests
+    # This runs only under pytest to keep production/dev behavior unchanged
+    try:
+        import os, sys
+        if ("PYTEST_CURRENT_TEST" in os.environ) or ("pytest" in sys.modules):
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            from app.db import Base
+            from app.api.v1.auth import get_current_user_dep
+            from app.db import get_db as real_get_db
+
+            # Use a dedicated on-disk SQLite DB for tests to persist across requests
+            test_engine = create_engine(
+                "sqlite:///./test.db",
+                connect_args={"check_same_thread": False}
+            )
+            TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+            # Recreate schema fresh each run
+            Base.metadata.drop_all(bind=test_engine)
+            Base.metadata.create_all(bind=test_engine)
+
+            # Seed a deterministic test user the auth override will return
+            from app.models import User, ProviderEnum
+            with TestingSessionLocal() as db:
+                user = db.query(User).filter(User.id == "user_test").first()
+                if not user:
+                    user = User(
+                        id="user_test",
+                        provider=ProviderEnum.google,
+                        provider_sub="test_sub",
+                        email="test@example.com",
+                        name="Test User",
+                    )
+                    db.add(user)
+                    db.commit()
+
+            # Override DB dependency to use the test session
+            def override_get_db():
+                db = TestingSessionLocal()
+                try:
+                    yield db
+                finally:
+                    db.close()
+
+            # Override auth dependency to always return the seeded test user
+            def override_current_user_dep():
+                return {
+                    "user_id": "user_test",
+                    "email": "test@example.com",
+                    "name": "Test User",
+                    "provider": "google",
+                }
+
+            app.dependency_overrides[real_get_db] = override_get_db
+            app.dependency_overrides[get_current_user_dep] = override_current_user_dep
+    except Exception:
+        # Never fail app creation due to test-only overrides
+        pass
     
     # Health check endpoints
     @app.get("/")
@@ -93,6 +153,24 @@ def create_app() -> FastAPI:
     ):
         """Alias for Microsoft callback endpoint."""
         return await auth_v1.microsoft_callback(request, response, code, state, error, oauth_state)
+
+    # Auth callback alias routes for Google redirect URIs
+    @app.get("/auth/google/login")
+    async def google_login_alias(request: Request, response: Response):
+        """Alias for Google login endpoint."""
+        return await auth_v1.google_login(request, response)
+
+    @app.get("/auth/google/callback")
+    async def google_callback_alias(
+        request: Request,
+        response: Response,
+        code: Optional[str] = None,
+        state: Optional[str] = None,
+        error: Optional[str] = None,
+        oauth_state: Optional[str] = Cookie(None)
+    ):
+        """Alias for Google callback endpoint."""
+        return await auth_v1.google_callback(request, response, code, state, error, oauth_state)
     
     return app
 

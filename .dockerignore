@@ -4,3 +4,5 @@ __pycache__/
 .envrc
 .venv/
 .env.local
+
+test.db
