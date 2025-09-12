@@ -46,3 +46,7 @@ Notes:
 ### Microsoft OAuth in development
 - Azure permits HTTP redirect URIs only for `localhost` (not `127.0.0.1`). Set `MS_REDIRECT_URI=http://localhost:8000/auth/ms/callback` in `.env.local` and add the same value to your Azure app registration.
 - The dev server is accessible via both `localhost` and `127.0.0.1`, but the OAuth redirect must exactly match the Azure configuration.
+
+### Google OAuth in development
+- Google permits HTTP redirect URIs only for `localhost` (not `127.0.0.1`). Set `GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback` in `.env.local` and add the same value to your Google Cloud Console OAuth client.
+- Ensure the OAuth client type is “Web application” and the redirect URI matches exactly; JavaScript origins are not required for this server-side flow.

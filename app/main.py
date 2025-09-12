@@ -153,6 +153,24 @@ def create_app() -> FastAPI:
     ):
         """Alias for Microsoft callback endpoint."""
         return await auth_v1.microsoft_callback(request, response, code, state, error, oauth_state)
+
+    # Auth callback alias routes for Google redirect URIs
+    @app.get("/auth/google/login")
+    async def google_login_alias(request: Request, response: Response):
+        """Alias for Google login endpoint."""
+        return await auth_v1.google_login(request, response)
+
+    @app.get("/auth/google/callback")
+    async def google_callback_alias(
+        request: Request,
+        response: Response,
+        code: Optional[str] = None,
+        state: Optional[str] = None,
+        error: Optional[str] = None,
+        oauth_state: Optional[str] = Cookie(None)
+    ):
+        """Alias for Google callback endpoint."""
+        return await auth_v1.google_callback(request, response, code, state, error, oauth_state)
     
     return app
 
