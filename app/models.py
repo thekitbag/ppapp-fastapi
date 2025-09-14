@@ -127,6 +127,12 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_status_sort_order", "status", "sort_order"),
         Index("ix_tasks_user_status_sort", "user_id", "status", "sort_order"),
+        # Performance indexes for new filtering functionality
+        Index("ix_tasks_user_project", "user_id", "project_id"),
+        Index("ix_tasks_user_goal", "user_id", "goal_id"),
+        Index("ix_tasks_hard_due_at", "hard_due_at"),
+        Index("ix_tasks_soft_due_at", "soft_due_at"),
+        Index("ix_tasks_project_id", "project_id"),
     )
 
 
@@ -229,3 +235,11 @@ class TaskGoal(Base):
     task = relationship("Task", back_populates="goal_links")
     goal = relationship("Goal", back_populates="task_links")
     user = relationship("User", back_populates="task_goals")
+
+    __table_args__ = (
+        # Performance indexes for goal filtering queries
+        Index("ix_task_goals_goal_id", "goal_id"),
+        Index("ix_task_goals_task_id", "task_id"),
+        Index("ix_task_goals_user_goal", "user_id", "goal_id"),
+        Index("ix_task_goals_user_task", "user_id", "task_id"),
+    )
