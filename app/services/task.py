@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.repositories import TaskRepository
 from app.schemas import TaskCreate, TaskOut
@@ -44,25 +45,42 @@ class TaskService(BaseService):
         return self.task_repo.to_schema(task)
     
     def list_tasks(
-        self, 
+        self,
         user_id: str,
         status: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
+        goal_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        due_before: Optional[datetime] = None,
+        due_after: Optional[datetime] = None,
+        search: Optional[str] = None,
         skip: int = 0,
         limit: Optional[int] = None
     ) -> List[TaskOut]:
-        """List tasks for specific user with optional filtering. Excludes archived by default unless specifically requested."""
-        self.logger.debug(f"Listing tasks for user {user_id} with status filter: {status}")
-        
+        """List tasks for specific user with comprehensive filtering support."""
+        self.logger.debug(f"Listing tasks for user {user_id} with filters: status={status}, project_id={project_id}, goal_id={goal_id}, tags={tags}, due_before={due_before}, due_after={due_after}, search={search}")
+
         # If no status filter provided, exclude archived by default
         if status is None:
             status = ["backlog", "doing", "done", "week", "today", "waiting"]
-        
+
         # Apply limit validation only if limit is specified
         if limit is not None and limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
-        
-        tasks = self.task_repo.get_by_status(user_id, status, skip=skip, limit=limit)
-        return self.task_repo.to_schema_batch(tasks)  # Use batch method for better performance
+
+        tasks = self.task_repo.get_filtered_tasks(
+            user_id=user_id,
+            status=status,
+            project_id=project_id,
+            goal_id=goal_id,
+            tags=tags,
+            due_before=due_before,
+            due_after=due_after,
+            search=search,
+            skip=skip,
+            limit=limit
+        )
+        return self.task_repo.to_schema_batch(tasks)
     
     def update_task(self, task_id: str, user_id: str, update_data: Dict[str, Any]) -> TaskOut:
         """Update a task for specific user."""

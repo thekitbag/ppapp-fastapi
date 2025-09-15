@@ -1,11 +1,11 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_, func
 import uuid
 import time
 from datetime import datetime
 
-from app.models import Task, Tag
+from app.models import Task, Tag, TaskGoal, task_tags
 from app.schemas import TaskCreate, TaskOut
 from app.exceptions import NotFoundError
 from .base import BaseRepository
@@ -100,13 +100,103 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         query = select(Task).where(Task.user_id == user_id)
         if status:  # Only filter if status list is not empty
             query = query.where(Task.status.in_(status))
-        
+
         result = self.db.execute(
             query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.desc())
             .offset(skip)
             .limit(limit)
         ).scalars().all()
-        
+
+        return result
+
+    def get_filtered_tasks(
+        self,
+        user_id: str,
+        status: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
+        goal_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        due_before: Optional[datetime] = None,
+        due_after: Optional[datetime] = None,
+        search: Optional[str] = None,
+        skip: int = 0,
+        limit: Optional[int] = None
+    ) -> List[Task]:
+        """Get tasks with comprehensive filtering support."""
+
+        # Start with base query
+        query = select(Task).where(Task.user_id == user_id)
+
+        # Status filtering
+        if status:
+            query = query.where(Task.status.in_(status))
+
+        # Project filtering
+        if project_id:
+            query = query.where(Task.project_id == project_id)
+
+        # Goal filtering (check both legacy goal_id field and goal links)
+        if goal_id:
+            # Check legacy goal_id field OR goal links via TaskGoal table
+            goal_condition = or_(
+                Task.goal_id == goal_id,
+                Task.id.in_(
+                    select(TaskGoal.task_id).where(
+                        and_(TaskGoal.goal_id == goal_id, TaskGoal.user_id == user_id)
+                    )
+                )
+            )
+            query = query.where(goal_condition)
+
+        # Tag filtering - task must have ALL specified tags
+        if tags:
+            for tag_name in tags:
+                # For each required tag, ensure the task has it
+                tag_exists_subquery = select(Tag.id).join_from(
+                    Tag, task_tags
+                ).where(
+                    and_(
+                        Tag.name == tag_name,
+                        Tag.user_id == user_id,
+                        task_tags.c.task_id == Task.id
+                    )
+                ).exists()
+
+                query = query.where(tag_exists_subquery)
+
+        # Due date filtering (check both hard_due_at and soft_due_at)
+        if due_before:
+            date_condition = or_(
+                and_(Task.hard_due_at.isnot(None), Task.hard_due_at <= due_before),
+                and_(Task.soft_due_at.isnot(None), Task.soft_due_at <= due_before)
+            )
+            query = query.where(date_condition)
+
+        if due_after:
+            date_condition = or_(
+                and_(Task.hard_due_at.isnot(None), Task.hard_due_at >= due_after),
+                and_(Task.soft_due_at.isnot(None), Task.soft_due_at >= due_after)
+            )
+            query = query.where(date_condition)
+
+        # Free-text search across title and description
+        if search:
+            search_pattern = f"%{search}%"
+            search_condition = or_(
+                Task.title.ilike(search_pattern),
+                Task.description.ilike(search_pattern)
+            )
+            query = query.where(search_condition)
+
+        # Apply ordering and pagination
+        query = query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.desc())
+
+        if skip:
+            query = query.offset(skip)
+        if limit:
+            query = query.limit(limit)
+
+        result = self.db.execute(query).scalars().all()
         return result
     
     def delete_by_user(self, task_id: str, user_id: str) -> bool:

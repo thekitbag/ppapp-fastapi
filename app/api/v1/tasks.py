@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
+from datetime import datetime
 
 from app.db import get_db
 from app.services import TaskService
@@ -30,13 +31,40 @@ def create_task(
 @router.get("", response_model=List[TaskOut])
 def list_tasks(
     status: List[str] = Query(None),
+    project_id: Optional[str] = Query(None),
+    goal_id: Optional[str] = Query(None),
+    tag: List[str] = Query(None),
+    due_before: Optional[datetime] = Query(None),
+    due_after: Optional[datetime] = Query(None),
+    search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(None, ge=1, le=1000),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     task_service: TaskService = Depends(get_task_service)
 ):
-    """List tasks for authenticated user with optional status filtering. Default shows all non-archived tasks."""
-    return task_service.list_tasks(current_user["user_id"], status=status, skip=skip, limit=limit)
+    """List tasks for authenticated user with filtering support.
+
+    Filters:
+    - status: List of status values to include
+    - project_id: Filter by project UUID
+    - goal_id: Filter by goal UUID (searches both goal_id field and goal links)
+    - tag: List of tag names (tasks must have all specified tags)
+    - due_before: Show tasks due before this datetime (checks both hard_due_at and soft_due_at)
+    - due_after: Show tasks due after this datetime (checks both hard_due_at and soft_due_at)
+    - search: Free-text search across task title and description
+    """
+    return task_service.list_tasks(
+        user_id=current_user["user_id"],
+        status=status,
+        project_id=project_id,
+        goal_id=goal_id,
+        tags=tag,
+        due_before=due_before,
+        due_after=due_after,
+        search=search,
+        skip=skip,
+        limit=limit
+    )
 
 
 @router.get("/{task_id}", response_model=TaskOut)
