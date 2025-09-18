@@ -11,6 +11,19 @@ uvicorn app.main:app --reload
 ```
 Open http://127.0.0.1:8000/docs
 
+## Python version
+
+- Target Python: 3.11 (matches Docker image and GitHub Actions CI).
+- Recommendation: use a 3.11.x interpreter locally to avoid dependency/runtime drift.
+- If you use pyenv:
+
+```bash
+pyenv install 3.11.9 -s
+pyenv local 3.11.9
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ## Makefile shortcuts
 
 With the included `Makefile` you can use:
