@@ -18,16 +18,20 @@ class TaskService(BaseService):
         """Create a new task for specific user."""
         try:
             self.logger.info(f"Creating task for user {user_id}: {task_in.title}")
-            
+
             if not task_in.title or not task_in.title.strip():
                 raise ValidationError("Task title cannot be empty")
-            
+
+            # Default status to "week" if not provided
+            if task_in.status is None:
+                task_in.status = "week"
+
             task = self.task_repo.create_with_tags(task_in, user_id)
             self.commit()
-            
+
             self.logger.info(f"Task created successfully: {task.id}")
             return self.task_repo.to_schema(task)
-            
+
         except Exception as e:
             self.rollback()
             self.logger.error(f"Failed to create task: {str(e)}")
@@ -148,28 +152,44 @@ class TaskService(BaseService):
         
         return True
     
+    def reindex_tasks(self, user_id: str, status: str) -> int:
+        """Reindex sort_order values for tasks in a status bucket."""
+        try:
+            self.logger.info(f"Reindexing tasks for user {user_id} in status {status}")
+
+            count = self.task_repo.reindex_sort_order(user_id, status)
+            self.commit()
+
+            self.logger.info(f"Reindexed {count} tasks in status {status}")
+            return count
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to reindex tasks: {str(e)}")
+            raise
+
     def link_task_to_goal(self, task_id: str, goal_id: str, user_id: str, weight: float = None) -> bool:
         """Link a task to a goal with cross-user validation."""
         try:
             self.logger.info(f"Linking task {task_id} to goal {goal_id} for user {user_id}")
-            
+
             # Validate both resources belong to the same user
             self.validate_cross_user_resources(user_id, task_id=task_id, goal_id=goal_id)
-            
+
             from app.models import TaskGoal
             import uuid
-            
+
             # Check if link already exists
             existing_link = self.db.query(TaskGoal).filter(
                 TaskGoal.task_id == task_id,
                 TaskGoal.goal_id == goal_id,
                 TaskGoal.user_id == user_id
             ).first()
-            
+
             if existing_link:
                 self.logger.warning(f"Task-goal link already exists: {task_id} -> {goal_id}")
                 return False
-            
+
             # Create new link
             task_goal = TaskGoal(
                 id=f"tg_{uuid.uuid4()}",
@@ -178,13 +198,13 @@ class TaskService(BaseService):
                 user_id=user_id,
                 weight=weight
             )
-            
+
             self.db.add(task_goal)
             self.commit()
-            
+
             self.logger.info(f"Successfully linked task to goal: {task_id} -> {goal_id}")
             return True
-            
+
         except Exception as e:
             self.rollback()
             self.logger.error(f"Failed to link task to goal: {str(e)}")

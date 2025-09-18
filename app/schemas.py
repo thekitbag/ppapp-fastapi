@@ -127,6 +127,7 @@ class TaskCreate(TaskBase):
     tags: List[str] = Field(default_factory=list)
     status: Optional[Status] = None
     sort_order: Optional[float] = None
+    insert_at: Optional[Literal["top", "bottom"]] = Field(default="top", description="Position for new task in status bucket")
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
