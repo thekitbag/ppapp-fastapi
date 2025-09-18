@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, date
 
 from app.repositories import TaskRepository
 from app.schemas import TaskCreate, TaskOut
@@ -48,25 +49,71 @@ class TaskService(BaseService):
         return self.task_repo.to_schema(task)
     
     def list_tasks(
-        self, 
+        self,
         user_id: str,
         status: Optional[List[str]] = None,
         skip: int = 0,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        project_id: Optional[str] = None,
+        goal_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        search: Optional[str] = None,
+        due_date_start: Optional[date] = None,
+        due_date_end: Optional[date] = None,
     ) -> List[TaskOut]:
-        """List tasks for specific user with optional filtering. Excludes archived by default unless specifically requested."""
-        self.logger.debug(f"Listing tasks for user {user_id} with status filter: {status}")
-        
-        # If no status filter provided, exclude archived by default
+        """List tasks for specific user with optional filtering.
+
+        Defaults to exclude archived and done unless explicitly requested.
+        """
+        # Normalize default statuses
         if status is None:
-            status = ["backlog", "doing", "done", "week", "today", "waiting"]
-        
-        # Apply limit validation only if limit is specified
+            status = ["backlog", "week", "today", "doing", "waiting"]
+
+        # Validate limit
         if limit is not None and limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
-        
-        tasks = self.task_repo.get_by_status(user_id, status, skip=skip, limit=limit)
-        return self.task_repo.to_schema_batch(tasks)  # Use batch method for better performance
+
+        # Convert date range to datetime boundaries (local naive)
+        start_dt: Optional[datetime] = None
+        end_dt: Optional[datetime] = None
+        if due_date_start:
+            start_dt = datetime(due_date_start.year, due_date_start.month, due_date_start.day, 0, 0, 0, 0)
+        if due_date_end:
+            # inclusive end of day: 23:59:59.999999
+            end_dt = datetime(due_date_end.year, due_date_end.month, due_date_end.day, 23, 59, 59, 999999)
+
+        # Log filters (without PII beyond IDs)
+        self.logger.debug(
+            "Listing tasks | user=%s statuses=%s project=%s goal=%s tags_count=%s has_search=%s date_range=%s..%s skip=%s limit=%s",
+            user_id,
+            status,
+            project_id,
+            goal_id,
+            len(tags) if tags else 0,
+            bool(search),
+            start_dt.isoformat() if start_dt else None,
+            end_dt.isoformat() if end_dt else None,
+            skip,
+            limit,
+        )
+
+        tasks = self.task_repo.get_filtered(
+            user_id=user_id,
+            statuses=status,
+            project_id=project_id,
+            goal_id=goal_id,
+            tags=tags,
+            search=search,
+            due_start=start_dt,
+            due_end=end_dt,
+            skip=skip,
+            limit=limit,
+        )
+
+        result = self.task_repo.to_schema_batch(tasks)
+
+        self.logger.debug("List tasks result_count=%d", len(result))
+        return result
     
     def update_task(self, task_id: str, user_id: str, update_data: Dict[str, Any]) -> TaskOut:
         """Update a task for specific user."""

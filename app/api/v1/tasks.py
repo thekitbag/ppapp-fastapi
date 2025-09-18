@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from datetime import date
 from pydantic import BaseModel
 
 from app.db import get_db
@@ -29,14 +30,36 @@ def create_task(
 
 @router.get("", response_model=List[TaskOut])
 def list_tasks(
-    status: List[str] = Query(None),
+    status: List[str] = Query(None, description="Filter by status; repeat param for multiple"),
     skip: int = Query(0, ge=0),
     limit: int = Query(None, ge=1, le=1000),
+    # New filters
+    project_id: Optional[str] = Query(None, description="Filter by project ID"),
+    goal_id: Optional[str] = Query(None, description="Filter by goal ID (legacy goal_id or TaskGoal link)"),
+    tags: Optional[List[str]] = Query(None, description="Filter by tags (AND semantics; repeat param)"),
+    search: Optional[str] = Query(None, description="Case-insensitive search on title or description"),
+    due_date_start: Optional[date] = Query(None, description="Start date (YYYY-MM-DD) for due date range"),
+    due_date_end: Optional[date] = Query(None, description="End date (YYYY-MM-DD) for due date range"),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     task_service: TaskService = Depends(get_task_service)
 ):
-    """List tasks for authenticated user with optional status filtering. Default shows all non-archived tasks."""
-    return task_service.list_tasks(current_user["user_id"], status=status, skip=skip, limit=limit)
+    """List tasks for authenticated user with full filtering support.
+
+    If no status is provided, defaults to [backlog, week, today, doing, waiting].
+    Supports filtering by project, goal (legacy or TaskGoal link), tags (AND), text search, and due date range.
+    """
+    return task_service.list_tasks(
+        current_user["user_id"],
+        status=status,
+        skip=skip,
+        limit=limit,
+        project_id=project_id,
+        goal_id=goal_id,
+        tags=tags,
+        search=search,
+        due_date_start=due_date_start,
+        due_date_end=due_date_end,
+    )
 
 
 @router.get("/{task_id}", response_model=TaskOut)
