@@ -1,11 +1,11 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, exists
 import uuid
 import time
 from datetime import datetime
 
-from app.models import Task, Tag
+from app.models import Task, Tag, TaskGoal, task_tags
 from app.schemas import TaskCreate, TaskOut
 from app.exceptions import NotFoundError
 from .base import BaseRepository
@@ -144,6 +144,87 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         ).scalars().all()
         
         return result
+
+    def get_filtered(
+        self,
+        user_id: str,
+        statuses: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
+        goal_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        search: Optional[str] = None,
+        due_start: Optional[datetime] = None,
+        due_end: Optional[datetime] = None,
+        skip: int = 0,
+        limit: Optional[int] = 100,
+    ) -> List[Task]:
+        """Get tasks with combined filtering while preserving user scoping and ordering."""
+        # Base filter: user scope
+        conditions = [Task.user_id == user_id]
+
+        # Status filter
+        if statuses:
+            conditions.append(Task.status.in_(statuses))
+
+        # Project filter
+        if project_id:
+            conditions.append(Task.project_id == project_id)
+
+        # Goal filter: legacy Task.goal_id OR TaskGoal link for same user
+        if goal_id:
+            goal_exists = exists(
+                select(TaskGoal.id).where(
+                    TaskGoal.task_id == Task.id,
+                    TaskGoal.goal_id == goal_id,
+                    TaskGoal.user_id == user_id,
+                )
+            )
+            conditions.append(or_(Task.goal_id == goal_id, goal_exists))
+
+        # Search filter on title or description (ILIKE)
+        if search:
+            like = f"%{search}%"
+            conditions.append(or_(Task.title.ilike(like), Task.description.ilike(like)))
+
+        # Due date range on coalesce(soft_due_at, hard_due_at)
+        if due_start or due_end:
+            due_expr = func.coalesce(Task.soft_due_at, Task.hard_due_at)
+            if due_start:
+                conditions.append(due_expr >= due_start)
+            if due_end:
+                conditions.append(due_expr <= due_end)
+
+        # Start building base selectable of Task IDs to avoid row multiplication on tag joins
+        base_sel = select(Task.id).where(*conditions)
+
+        # Tags AND filter using subquery with HAVING count(distinct Tag.name) = len(tags)
+        if tags:
+            tag_subq = (
+                select(task_tags.c.task_id)
+                .select_from(task_tags)
+                .join(Tag, task_tags.c.tag_id == Tag.id)
+                .where(Tag.user_id == user_id, Tag.name.in_(tags))
+                .group_by(task_tags.c.task_id)
+                .having(func.count(func.distinct(Tag.name)) == len(tags))
+                .subquery()
+            )
+            base_sel = base_sel.where(Task.id.in_(select(tag_subq.c.task_id)))
+
+        id_subq = base_sel.subquery()
+
+        # Final query: fetch Task rows by IDs with ordering
+        query = (
+            select(Task)
+            .where(Task.id.in_(select(id_subq.c.id)))
+            .order_by(Task.sort_order.asc(), Task.created_at.asc())
+        )
+
+        if skip:
+            query = query.offset(skip)
+        if limit is not None:
+            query = query.limit(limit)
+
+        return self.db.execute(query).scalars().all()
     
     def delete_by_user(self, task_id: str, user_id: str) -> bool:
         """Delete a task by ID for specific user."""

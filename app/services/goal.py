@@ -448,7 +448,20 @@ class GoalService(BaseService):
             def build_tree_node(goal) -> GoalNode:
                 # Get children for this goal
                 children_goals = children_by_parent.get(goal.id, [])
-                
+
+                # Compute path showing ancestry
+                path_parts = []
+                current_goal = goal
+                while current_goal.parent_goal_id:
+                    parent_goal = goals_by_id.get(current_goal.parent_goal_id)
+                    if parent_goal:
+                        path_parts.insert(0, parent_goal.title)
+                        current_goal = parent_goal
+                    else:
+                        break
+
+                path = " › ".join(path_parts) if path_parts else None
+
                 # Convert to GoalNode
                 node_data = {
                     "id": goal.id,
@@ -459,6 +472,7 @@ class GoalService(BaseService):
                     "end_date": goal.end_date,
                     "status": goal.status.value if goal.status else "on_target",
                     "created_at": goal.created_at,
+                    "path": path,
                     "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))]
                 }
                 

@@ -730,3 +730,65 @@ def test_goals_v2_task_linking_weekly_only():
     assert weekly_link.status_code == 200
     result = weekly_link.json()
     assert task["id"] in result["linked"]
+
+
+def test_goals_tree_with_path():
+    """Test Goals v2 tree endpoint includes path field showing ancestry."""
+    timestamp = _timestamp()
+
+    # Create hierarchy
+    annual = client.post("/api/v1/goals/", json={
+        "title": f"Path Annual {timestamp}",
+        "type": "annual"
+    }).json()
+
+    quarterly = client.post("/api/v1/goals/", json={
+        "title": f"Path Quarterly {timestamp}",
+        "type": "quarterly",
+        "parent_goal_id": annual["id"]
+    }).json()
+
+    weekly = client.post("/api/v1/goals/", json={
+        "title": f"Path Weekly {timestamp}",
+        "type": "weekly",
+        "parent_goal_id": quarterly["id"]
+    }).json()
+
+    # Test tree endpoint
+    tree_response = client.get("/api/v1/goals/tree")
+    assert tree_response.status_code == 200
+    tree = tree_response.json()
+
+    # Find our goals in the tree
+    our_annual = None
+    our_quarterly = None
+    our_weekly = None
+
+    for node in tree:
+        if node["id"] == annual["id"]:
+            our_annual = node
+            # Find quarterly child
+            for child in node["children"]:
+                if child["id"] == quarterly["id"]:
+                    our_quarterly = child
+                    # Find weekly grandchild
+                    for grandchild in child["children"]:
+                        if grandchild["id"] == weekly["id"]:
+                            our_weekly = grandchild
+                            break
+                    break
+            break
+
+    assert our_annual is not None
+    assert our_quarterly is not None
+    assert our_weekly is not None
+
+    # Verify path field values
+    # Annual goal should have no path (it's the root)
+    assert our_annual["path"] is None
+
+    # Quarterly goal should show its annual parent
+    assert our_quarterly["path"] == f"Path Annual {timestamp}"
+
+    # Weekly goal should show full ancestry: Annual › Quarterly
+    assert our_weekly["path"] == f"Path Annual {timestamp} › Path Quarterly {timestamp}"

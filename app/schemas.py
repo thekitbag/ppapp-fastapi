@@ -102,6 +102,8 @@ class GoalNode(GoalOut):
     children: List['GoalNode'] = Field(default_factory=list)
     # Optional: include tasks for weekly goals when requested
     tasks: Optional[List['TaskOut']] = None
+    # Optional: include path showing ancestry (e.g., "Annual › Quarterly")
+    path: Optional[str] = None
 
 class GoalsByTypeRequest(BaseModel):
     """Query parameters for getting goals by type"""
