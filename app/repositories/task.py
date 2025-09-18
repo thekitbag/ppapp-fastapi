@@ -1,6 +1,6 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func
 import uuid
 import time
 from datetime import datetime
@@ -20,6 +20,38 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
     def _gen_id(self, prefix: str = "task") -> str:
         """Generate unique ID with prefix."""
         return f"{prefix}_{uuid.uuid4()}"
+
+    def _calculate_sort_order(self, user_id: str, status: str, insert_at: str) -> float:
+        """Calculate sort_order for new task based on position preference."""
+        if insert_at == "top":
+            # Get minimum sort_order in the bucket
+            result = self.db.execute(
+                select(func.min(Task.sort_order)).where(
+                    Task.user_id == user_id,
+                    Task.status == status
+                )
+            ).scalar()
+            if result is None:
+                # No tasks in bucket, use current timestamp
+                return float(int(time.time() * 1000))
+            return result - 1
+
+        elif insert_at == "bottom":
+            # Get maximum sort_order in the bucket
+            result = self.db.execute(
+                select(func.max(Task.sort_order)).where(
+                    Task.user_id == user_id,
+                    Task.status == status
+                )
+            ).scalar()
+            if result is None:
+                # No tasks in bucket, use current timestamp
+                return float(int(time.time() * 1000))
+            return result + 1
+
+        else:
+            # Default fallback - use current timestamp
+            return float(int(time.time() * 1000))
     
     def get_or_create_tag(self, name: str, user_id: str) -> Tag:
         """Get existing tag for user or create new one."""
@@ -37,24 +69,28 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
     
     def create_with_tags(self, task_in: TaskCreate, user_id: str) -> Task:
         """Create task with tags for specific user."""
-        task_data = task_in.model_dump(exclude={"tags"})
-        
-        # Set sort_order if not provided - use current timestamp in milliseconds
+        task_data = task_in.model_dump(exclude={"tags", "insert_at"})
+
+        # Calculate sort_order based on insert_at preference
         if "sort_order" not in task_data or task_data["sort_order"] is None:
-            task_data["sort_order"] = int(time.time() * 1000)  # ms, consistent
-        
+            task_data["sort_order"] = self._calculate_sort_order(
+                user_id,
+                task_in.status,
+                task_in.insert_at or "top"
+            )
+
         task = Task(
             id=self._gen_id("task"),
             user_id=user_id,  # Set user_id for multi-tenancy
             **task_data
         )
-        
+
         self.db.add(task)
-        
+
         if task_in.tags:
             tags = [self.get_or_create_tag(tag_name, user_id) for tag_name in task_in.tags]
             task.tags = tags
-        
+
         self.db.flush()
         self.db.refresh(task)
         return task
@@ -102,7 +138,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             query = query.where(Task.status.in_(status))
         
         result = self.db.execute(
-            query.order_by(Task.status, Task.sort_order.asc(), Task.created_at.desc())
+            query.order_by(Task.sort_order.asc(), Task.created_at.asc())
             .offset(skip)
             .limit(limit)
         ).scalars().all()
@@ -114,9 +150,29 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         task = self.get_by_user(task_id, user_id)
         if not task:
             return False
-        
+
         self.db.delete(task)
         return True
+
+    def reindex_sort_order(self, user_id: str, status: str) -> int:
+        """Reindex sort_order values for tasks in a status bucket to small consecutive numbers."""
+        # Get all tasks in the status bucket, ordered by current sort_order and created_at
+        tasks = self.db.execute(
+            select(Task).where(
+                Task.user_id == user_id,
+                Task.status == status
+            ).order_by(Task.sort_order.asc(), Task.created_at.asc())
+        ).scalars().all()
+
+        if not tasks:
+            return 0
+
+        # Update sort_order to consecutive integers starting from 1
+        for i, task in enumerate(tasks, start=1):
+            task.sort_order = float(i)
+
+        self.db.flush()
+        return len(tasks)
     
     def to_schema_batch(self, tasks: List[Task]) -> List[TaskOut]:
         """Convert multiple Task models to TaskOut schemas efficiently (avoids N+1 queries)."""

@@ -87,3 +87,14 @@ def promote_week(
     """Promote tasks to week status for authenticated user."""
     updated_ids = task_service.promote_tasks_to_week(body.task_ids, current_user["user_id"])
     return {"updated": len(updated_ids), "ids": updated_ids}
+
+
+@router.post("/reindex")
+def reindex_tasks(
+    status: str = Query(..., description="Status bucket to reindex"),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    task_service: TaskService = Depends(get_task_service)
+):
+    """Reindex sort_order values for tasks in a specific status bucket."""
+    count = task_service.reindex_tasks(current_user["user_id"], status)
+    return {"reindexed": count, "status": status}
