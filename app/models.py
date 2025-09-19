@@ -1,5 +1,6 @@
 # app/models.py
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, DateTime, Enum, Boolean, JSON, Table, Index, UniqueConstraint
+import sqlalchemy as sa
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -113,6 +114,9 @@ class Task(Base):
     project_id = Column(String, ForeignKey("projects.id"), nullable=True)
     goal_id = Column(String, ForeignKey("goals.id"), nullable=True)  # Deprecated - keep for backward compatibility
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)  # Will be NOT NULL after backfill
+
+    # Idempotency support
+    client_request_id = Column(String, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -127,6 +131,8 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_status_sort_order", "status", "sort_order"),
         Index("ix_tasks_user_status_sort", "user_id", "status", "sort_order"),
+        # Note: Partial unique constraint handled by migration for PostgreSQL
+        # For SQLite development, we rely on application-level enforcement
     )
 
 

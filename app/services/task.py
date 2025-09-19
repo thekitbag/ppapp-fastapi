@@ -1,5 +1,6 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from datetime import datetime, timedelta, date
 
 from app.repositories import TaskRepository
@@ -15,8 +16,12 @@ class TaskService(BaseService):
         super().__init__(db)
         self.task_repo = TaskRepository(db)
     
-    def create_task(self, task_in: TaskCreate, user_id: str) -> TaskOut:
-        """Create a new task for specific user."""
+    def create_task(self, task_in: TaskCreate, user_id: str) -> Tuple[TaskOut, bool]:
+        """Create a new task for specific user.
+
+        Returns:
+            tuple[TaskOut, bool]: (task, was_created) where was_created is True for new tasks, False for idempotent returns
+        """
         try:
             self.logger.info(f"Creating task for user {user_id}: {task_in.title}")
 
@@ -27,11 +32,26 @@ class TaskService(BaseService):
             if task_in.status is None:
                 task_in.status = "week"
 
+            # Check for idempotent case before calling repository
+            was_created = True
+            if task_in.client_request_id:
+                from app.models import Task
+                existing_task = self.db.execute(
+                    select(Task).where(
+                        Task.user_id == user_id,
+                        Task.client_request_id == task_in.client_request_id
+                    )
+                ).scalar_one_or_none()
+                if existing_task:
+                    was_created = False
+                    self.logger.info(f"Idempotent task request: returning existing task {existing_task.id}")
+                    return self.task_repo.to_schema(existing_task), was_created
+
             task = self.task_repo.create_with_tags(task_in, user_id)
             self.commit()
 
             self.logger.info(f"Task created successfully: {task.id}")
-            return self.task_repo.to_schema(task)
+            return self.task_repo.to_schema(task), was_created
 
         except Exception as e:
             self.rollback()
