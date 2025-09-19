@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from datetime import date
@@ -18,14 +19,23 @@ def get_task_service(db: Session = Depends(get_db)) -> TaskService:
     return TaskService(db)
 
 
-@router.post("", response_model=TaskOut, status_code=201)
+@router.post("", response_model=TaskOut)
 def create_task(
     payload: TaskCreate,
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     task_service: TaskService = Depends(get_task_service)
 ):
     """Create a new task for authenticated user."""
-    return task_service.create_task(payload, current_user["user_id"])
+    task, was_created = task_service.create_task(payload, current_user["user_id"])
+
+    # Return 201 for new tasks, 200 for idempotent returns
+    status_code = status.HTTP_201_CREATED if was_created else status.HTTP_200_OK
+
+    # Use FastAPI's built-in JSON encoder which handles datetime serialization
+    return JSONResponse(
+        content=task.model_dump(mode='json'),
+        status_code=status_code
+    )
 
 
 @router.get("", response_model=List[TaskOut])

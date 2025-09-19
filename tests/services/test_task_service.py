@@ -32,9 +32,10 @@ class TestTaskService:
     def test_create_task_success(self, task_service, sample_task_data, test_user):
         """Test successful task creation."""
         task_create = TaskCreate(**sample_task_data)
-        result = task_service.create_task(task_create, test_user.id)
-        
+        result, was_created = task_service.create_task(task_create, test_user.id)
+
         assert isinstance(result, TaskOut)
+        assert was_created is True  # Should be a new creation
         assert result.title == "Test Task"
         assert result.status == "backlog"
         assert "test" in result.tags
@@ -43,10 +44,10 @@ class TestTaskService:
     def test_create_task_empty_title_fails(self, task_service, test_user):
         """Test task creation with empty title fails."""
         task_create = TaskCreate(title="", description="Test")
-        
+
         with pytest.raises(ValidationError) as exc_info:
             task_service.create_task(task_create, test_user.id)
-        
+
         assert "title cannot be empty" in str(exc_info.value)
     
     def test_create_task_whitespace_only_title_fails(self, task_service, test_user):
@@ -62,11 +63,11 @@ class TestTaskService:
         """Test successful task retrieval."""
         # Create a task first
         task_create = TaskCreate(**sample_task_data)
-        created_task = task_service.create_task(task_create, test_user.id)
-        
+        created_task, _ = task_service.create_task(task_create, test_user.id)
+
         # Retrieve the task
         result = task_service.get_task(created_task.id, test_user.id)
-        
+
         assert result.id == created_task.id
         assert result.title == "Test Task"
     
@@ -84,9 +85,9 @@ class TestTaskService:
             data = sample_task_data.copy()
             data["title"] = f"Task {i}"
             task_service.create_task(TaskCreate(**data), test_user.id)
-        
+
         result = task_service.list_tasks(test_user.id)
-        
+
         assert len(result) == 3
         assert all(isinstance(task, TaskOut) for task in result)
     
@@ -119,12 +120,12 @@ class TestTaskService:
         """Test successful task update."""
         # Create a task first
         task_create = TaskCreate(**sample_task_data)
-        created_task = task_service.create_task(task_create, test_user.id)
-        
+        created_task, _ = task_service.create_task(task_create, test_user.id)
+
         # Update the task
         update_data = {"title": "Updated Task", "status": "doing"}
         result = task_service.update_task(created_task.id, test_user.id, update_data)
-        
+
         assert result.title == "Updated Task"
         assert result.status == "doing"
     
@@ -132,14 +133,14 @@ class TestTaskService:
         """Test updating task with empty title fails."""
         # Create a task first
         task_create = TaskCreate(**sample_task_data)
-        created_task = task_service.create_task(task_create, test_user.id)
-        
+        created_task, _ = task_service.create_task(task_create, test_user.id)
+
         # Try to update with empty title
         update_data = {"title": ""}
-        
+
         with pytest.raises(ValidationError) as exc_info:
             task_service.update_task(created_task.id, test_user.id, update_data)
-        
+
         assert "title cannot be empty" in str(exc_info.value)
     
     def test_update_task_not_found(self, task_service, test_user):
@@ -153,13 +154,13 @@ class TestTaskService:
         """Test successful task deletion."""
         # Create a task first
         task_create = TaskCreate(**sample_task_data)
-        created_task = task_service.create_task(task_create, test_user.id)
-        
+        created_task, _ = task_service.create_task(task_create, test_user.id)
+
         # Delete the task
         result = task_service.delete_task(created_task.id, test_user.id)
-        
+
         assert result is True
-        
+
         # Verify task is deleted
         with pytest.raises(NotFoundError):
             task_service.get_task(created_task.id, test_user.id)
@@ -176,7 +177,7 @@ class TestTaskService:
         for i in range(3):
             data = sample_task_data.copy()
             data["title"] = f"Task {i}"
-            created_task = task_service.create_task(TaskCreate(**data), test_user.id)
+            created_task, _ = task_service.create_task(TaskCreate(**data), test_user.id)
             task_ids.append(created_task.id)
         
         # Promote to week
@@ -194,16 +195,16 @@ class TestTaskService:
         """Test promoting tasks where some don't exist."""
         # Create one task
         task_create = TaskCreate(**sample_task_data)
-        created_task = task_service.create_task(task_create, test_user.id)
-        
+        created_task, _ = task_service.create_task(task_create, test_user.id)
+
         # Try to promote existing and non-existing tasks
         task_ids = [created_task.id, "nonexistent_id"]
         result = task_service.promote_tasks_to_week(task_ids, test_user.id)
-        
+
         # Only the existing task should be updated
         assert len(result) == 1
         assert result[0] == created_task.id
-        
+
         # Verify the existing task was updated
         task = task_service.get_task(created_task.id, test_user.id)
         assert task.status == "week"

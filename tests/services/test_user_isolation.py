@@ -55,8 +55,8 @@ class TestUserIsolation:
         """Test that user B cannot read user A's task."""
         # User A creates a task
         task_data = TaskCreate(title="User A's Task", status="backlog")
-        task = task_service.create_task(task_data, user_a.id)
-        
+        task, _ = task_service.create_task(task_data, user_a.id)
+
         # User B tries to read User A's task - should fail
         with pytest.raises(NotFoundError):
             task_service.get_task(task.id, user_b.id)
@@ -65,7 +65,7 @@ class TestUserIsolation:
         """Test that user B cannot update user A's task."""
         # User A creates a task
         task_data = TaskCreate(title="User A's Task", status="backlog")
-        task = task_service.create_task(task_data, user_a.id)
+        task, _ = task_service.create_task(task_data, user_a.id)
         
         # User B tries to update User A's task - should fail
         with pytest.raises(NotFoundError):
@@ -75,8 +75,8 @@ class TestUserIsolation:
         """Test that user B cannot delete user A's task."""
         # User A creates a task
         task_data = TaskCreate(title="User A's Task", status="backlog")
-        task = task_service.create_task(task_data, user_a.id)
-        
+        task, _ = task_service.create_task(task_data, user_a.id)
+
         # User B tries to delete User A's task - should fail
         with pytest.raises(NotFoundError):
             task_service.delete_task(task.id, user_b.id)
@@ -84,11 +84,11 @@ class TestUserIsolation:
     def test_user_list_tasks_only_sees_own_tasks(self, task_service, user_a, user_b):
         """Test that list_tasks only returns the user's own tasks."""
         # User A creates tasks
-        task_a1 = task_service.create_task(TaskCreate(title="A's Task 1", status="backlog"), user_a.id)
-        task_a2 = task_service.create_task(TaskCreate(title="A's Task 2", status="week"), user_a.id)
-        
+        task_a1, _ = task_service.create_task(TaskCreate(title="A's Task 1", status="backlog"), user_a.id)
+        task_a2, _ = task_service.create_task(TaskCreate(title="A's Task 2", status="week"), user_a.id)
+
         # User B creates tasks
-        task_b1 = task_service.create_task(TaskCreate(title="B's Task 1", status="backlog"), user_b.id)
+        task_b1, _ = task_service.create_task(TaskCreate(title="B's Task 1", status="backlog"), user_b.id)
         
         # User A should only see their own tasks
         user_a_tasks = task_service.list_tasks(user_a.id)
@@ -208,7 +208,7 @@ class TestUserIsolation:
         goal_a = goal_service.create_goal(GoalCreate(title="A's Goal", type="weekly", parent_goal_id=quarterly_a.id), user_a.id)
         
         # User B creates a task
-        task_b = task_service.create_task(TaskCreate(title="B's Task", status="backlog"), user_b.id)
+        task_b, _ = task_service.create_task(TaskCreate(title="B's Task", status="backlog"), user_b.id)
         
         # User B tries to link their task to User A's goal - should fail
         with pytest.raises((NotFoundError, ValidationError)):
@@ -217,7 +217,7 @@ class TestUserIsolation:
     def test_cannot_link_other_users_task_to_goal(self, task_service, goal_service, user_a, user_b):
         """Test that user cannot link another user's task to their goal."""
         # User A creates a task
-        task_a = task_service.create_task(TaskCreate(title="A's Task", status="backlog"), user_a.id)
+        task_a, _ = task_service.create_task(TaskCreate(title="A's Task", status="backlog"), user_a.id)
         
         # User B creates a goal hierarchy (annual -> quarterly -> weekly)  
         annual_b = goal_service.create_goal(GoalCreate(title="B's Annual Goal", type="annual"), user_b.id)
@@ -235,8 +235,8 @@ class TestUserIsolation:
         task_data = TaskCreate(title="Test Task", status="backlog")
         
         # Create task for user_a (server passes user_a.id regardless of what client might send)
-        task = task_service.create_task(task_data, user_a.id)
-        
+        task, _ = task_service.create_task(task_data, user_a.id)
+
         # Verify the task belongs to user_a, not any other user
         retrieved_task = task_service.get_task(task.id, user_a.id)
         assert retrieved_task.id == task.id

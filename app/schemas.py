@@ -130,6 +130,7 @@ class TaskCreate(TaskBase):
     status: Optional[Status] = None
     sort_order: Optional[float] = None
     insert_at: Optional[Literal["top", "bottom"]] = Field(default="top", description="Position for new task in status bucket")
+    client_request_id: Optional[str] = Field(default=None, description="Optional client-generated token for idempotent requests")
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None

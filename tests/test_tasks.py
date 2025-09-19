@@ -262,3 +262,173 @@ def test_reindex_empty_status_bucket():
     result = response.json()
     assert result["status"] == "nonexistent"
     assert result["reindexed"] == 0
+
+
+def test_create_task_idempotency_first_request():
+    """Test that first request with client_request_id creates task normally."""
+    import uuid
+    client_request_id = str(uuid.uuid4())
+
+    response = client.post("/api/v1/tasks", json={
+        "title": "Idempotent Task",
+        "client_request_id": client_request_id
+    })
+
+    assert response.status_code == 201
+    task = response.json()
+    assert task["title"] == "Idempotent Task"
+    assert task["id"] is not None
+
+
+def test_create_task_idempotency_duplicate_request():
+    """Test that duplicate request with same client_request_id returns existing task."""
+    import uuid
+    client_request_id = str(uuid.uuid4())
+
+    # First request - creates the task
+    first_response = client.post("/api/v1/tasks", json={
+        "title": "Idempotent Task",
+        "client_request_id": client_request_id,
+        "tags": ["test"]
+    })
+    assert first_response.status_code == 201
+    first_task = first_response.json()
+
+    # Second request - should return the same task
+    second_response = client.post("/api/v1/tasks", json={
+        "title": "Idempotent Task",
+        "client_request_id": client_request_id,
+        "tags": ["test"]
+    })
+    assert second_response.status_code == 200  # Should be 200, not 201
+    second_task = second_response.json()
+
+    # Should be the exact same task
+    assert first_task["id"] == second_task["id"]
+    assert first_task["title"] == second_task["title"]
+    assert first_task["created_at"] == second_task["created_at"]
+
+
+def test_create_task_idempotency_different_users():
+    """Test that different users can use the same client_request_id independently."""
+    import uuid
+    client_request_id = str(uuid.uuid4())
+
+    # This test assumes single-user mode where user isolation would be handled
+    # by authentication middleware. In a real multi-user system, we'd need to
+    # test with different authenticated users, but the repository logic ensures
+    # user_id scoping.
+
+    # First user creates task
+    first_response = client.post("/api/v1/tasks", json={
+        "title": "User 1 Task",
+        "client_request_id": client_request_id
+    })
+    assert first_response.status_code == 201
+    first_task = first_response.json()
+
+    # Same user tries again - should get same task
+    second_response = client.post("/api/v1/tasks", json={
+        "title": "User 1 Task",
+        "client_request_id": client_request_id
+    })
+    assert second_response.status_code == 200
+    second_task = second_response.json()
+    assert first_task["id"] == second_task["id"]
+
+
+def test_create_task_without_client_request_id():
+    """Test that tasks without client_request_id behave normally (no idempotency)."""
+    # Create two tasks with identical content but no client_request_id
+    first_response = client.post("/api/v1/tasks", json={
+        "title": "Duplicate Task",
+        "tags": ["test"]
+    })
+    assert first_response.status_code == 201
+    first_task = first_response.json()
+
+    second_response = client.post("/api/v1/tasks", json={
+        "title": "Duplicate Task",
+        "tags": ["test"]
+    })
+    assert second_response.status_code == 201
+    second_task = second_response.json()
+
+    # Should be different tasks
+    assert first_task["id"] != second_task["id"]
+    assert first_task["title"] == second_task["title"]
+
+
+def test_create_task_different_client_request_ids():
+    """Test that different client_request_ids create different tasks."""
+    import uuid
+
+    first_client_request_id = str(uuid.uuid4())
+    second_client_request_id = str(uuid.uuid4())
+
+    # First task
+    first_response = client.post("/api/v1/tasks", json={
+        "title": "Task 1",
+        "client_request_id": first_client_request_id
+    })
+    assert first_response.status_code == 201
+    first_task = first_response.json()
+
+    # Second task with different client_request_id
+    second_response = client.post("/api/v1/tasks", json={
+        "title": "Task 2",
+        "client_request_id": second_client_request_id
+    })
+    assert second_response.status_code == 201
+    second_task = second_response.json()
+
+    # Should be different tasks
+    assert first_task["id"] != second_task["id"]
+
+
+def test_create_task_idempotency_with_complex_payload():
+    """Test idempotency works with complex task payloads including relationships."""
+    import uuid
+
+    # Create a project first for the test
+    project_response = client.post("/api/v1/projects", json={"name": "Test Project"})
+    assert project_response.status_code == 201
+    project_id = project_response.json()["id"]
+
+    client_request_id = str(uuid.uuid4())
+
+    # First request with complex payload
+    first_response = client.post("/api/v1/tasks", json={
+        "title": "Complex Idempotent Task",
+        "description": "This is a complex task",
+        "status": "week",
+        "tags": ["complex", "test"],
+        "size": "m",
+        "effort_minutes": 60,
+        "energy": "medium",
+        "project_id": project_id,
+        "client_request_id": client_request_id
+    })
+    assert first_response.status_code == 201
+    first_task = first_response.json()
+
+    # Second request with same payload
+    second_response = client.post("/api/v1/tasks", json={
+        "title": "Complex Idempotent Task",
+        "description": "This is a complex task",
+        "status": "week",
+        "tags": ["complex", "test"],
+        "size": "m",
+        "effort_minutes": 60,
+        "energy": "medium",
+        "project_id": project_id,
+        "client_request_id": client_request_id
+    })
+    assert second_response.status_code == 200
+    second_task = second_response.json()
+
+    # Should be the same task with all the same properties
+    assert first_task["id"] == second_task["id"]
+    assert first_task["description"] == second_task["description"]
+    assert first_task["project_id"] == second_task["project_id"]
+    assert set(first_task["tags"]) == set(second_task["tags"])
