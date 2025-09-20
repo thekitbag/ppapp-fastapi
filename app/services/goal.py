@@ -46,14 +46,24 @@ class GoalService(BaseService):
         
         return self.goal_repo.to_schema(goal)
     
-    def list_goals(self, user_id: str, skip: int = 0, limit: int = 100) -> List[GoalSchema]:
-        """List goals."""
-        self.logger.debug("Listing goals")
-        
+    def list_goals(self, user_id: str, skip: int = 0, limit: int = 100, is_closed: bool = None) -> List[GoalSchema]:
+        """List goals with optional is_closed filter."""
+        self.logger.debug(f"Listing goals (is_closed={is_closed})")
+
         if limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
-        
-        goals = self.goal_repo.get_multi_by_user(user_id, skip=skip, limit=limit)
+
+        from app.models import Goal
+
+        query = self.db.query(Goal).filter(Goal.user_id == user_id)
+
+        # Apply is_closed filter if specified
+        if is_closed is not None:
+            query = query.filter(Goal.is_closed == is_closed)
+
+        # Apply pagination and ordering
+        goals = query.order_by(Goal.end_date.asc().nullslast(), Goal.created_at.asc()).offset(skip).limit(limit).all()
+
         return [self.goal_repo.to_schema(goal) for goal in goals]
     
     def update_goal(self, goal_id: str, user_id: str, goal_update: dict) -> GoalSchema:
@@ -423,14 +433,18 @@ class GoalService(BaseService):
             
         return False
     
-    def get_goals_tree(self, user_id: str, include_tasks: bool = False) -> List[GoalNode]:
+    def get_goals_tree(self, user_id: str, include_tasks: bool = False, include_closed: bool = False) -> List[GoalNode]:
         """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
         try:
-            self.logger.debug("Building goals tree")
+            self.logger.debug(f"Building goals tree (include_closed={include_closed})")
             from app.models import Goal
-            
-            # Get all goals for this user in one query
-            all_goals = self.db.query(Goal).filter(Goal.user_id == user_id).all()
+
+            # Get goals for this user with optional closed filter
+            query = self.db.query(Goal).filter(Goal.user_id == user_id)
+            if not include_closed:
+                query = query.filter(Goal.is_closed == False)
+
+            all_goals = query.all()
             
             # Build lookup maps
             goals_by_id = {goal.id: goal for goal in all_goals}
@@ -471,6 +485,8 @@ class GoalService(BaseService):
                     "parent_goal_id": goal.parent_goal_id,
                     "end_date": goal.end_date,
                     "status": goal.status.value if goal.status else "on_target",
+                    "is_closed": goal.is_closed,
+                    "closed_at": goal.closed_at,
                     "created_at": goal.created_at,
                     "path": path,
                     "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))]
@@ -521,4 +537,63 @@ class GoalService(BaseService):
             
         except Exception as e:
             self.logger.error(f"Failed to get goals by type {goal_type}: {str(e)}")
+            raise
+
+    def close_goal(self, goal_id: str, user_id: str) -> GoalSchema:
+        """Close a goal by setting is_closed=True and closed_at=now."""
+        try:
+            self.logger.info(f"Closing goal: {goal_id}")
+
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+
+            # Idempotent: if already closed, return current state
+            if goal.is_closed:
+                self.logger.info(f"Goal {goal_id} already closed")
+                return self.goal_repo.to_schema(goal)
+
+            # Close the goal
+            from datetime import datetime, timezone
+            goal.is_closed = True
+            goal.closed_at = datetime.now(timezone.utc)
+
+            self.commit()
+            self.db.refresh(goal)
+
+            self.logger.info(f"Goal closed successfully: {goal_id} at {goal.closed_at}")
+            return self.goal_repo.to_schema(goal)
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to close goal {goal_id}: {str(e)}")
+            raise
+
+    def reopen_goal(self, goal_id: str, user_id: str) -> GoalSchema:
+        """Reopen a goal by setting is_closed=False and closed_at=NULL."""
+        try:
+            self.logger.info(f"Reopening goal: {goal_id}")
+
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+
+            # Idempotent: if already open, return current state
+            if not goal.is_closed:
+                self.logger.info(f"Goal {goal_id} already open")
+                return self.goal_repo.to_schema(goal)
+
+            # Reopen the goal
+            goal.is_closed = False
+            goal.closed_at = None
+
+            self.commit()
+            self.db.refresh(goal)
+
+            self.logger.info(f"Goal reopened successfully: {goal_id}")
+            return self.goal_repo.to_schema(goal)
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to reopen goal {goal_id}: {str(e)}")
             raise

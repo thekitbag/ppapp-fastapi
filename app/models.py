@@ -192,7 +192,11 @@ class Goal(Base):
     parent_goal_id = Column(String, ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
     end_date = Column(DateTime(timezone=True), nullable=True)
     status = Column(Enum(GoalStatusEnum), nullable=False, default=GoalStatusEnum.on_target)
-    
+
+    # Goal lifecycle fields
+    is_closed = Column(Boolean, nullable=False, default=False)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)  # Will be NOT NULL after backfill
     
