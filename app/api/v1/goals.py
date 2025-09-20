@@ -29,22 +29,24 @@ def create_goal(
 def list_goals(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    is_closed: bool = Query(None, description="Filter by closed status. None = no filter (all goals)"),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """List all goals for authenticated user."""
-    return goal_service.list_goals(current_user["user_id"], skip=skip, limit=limit)
+    """List goals for authenticated user with optional closed status filter."""
+    return goal_service.list_goals(current_user["user_id"], skip=skip, limit=limit, is_closed=is_closed)
 
 
 # Goals v2: Tree and type endpoints must come before /{goal_id} to avoid conflicts
 @router.get("/tree", response_model=List[GoalNode])
 def get_goals_tree(
     include_tasks: bool = Query(False, description="Include linked tasks for weekly goals"),
+    include_closed: bool = Query(False, description="Include closed goals in tree. Default: open goals only"),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
     """Get hierarchical tree of goals (Annual → Quarterly → Weekly) for authenticated user."""
-    return goal_service.get_goals_tree(current_user["user_id"], include_tasks=include_tasks)
+    return goal_service.get_goals_tree(current_user["user_id"], include_tasks=include_tasks, include_closed=include_closed)
 
 
 @router.get("/by-type", response_model=List[GoalOut])
@@ -134,5 +136,25 @@ def unlink_tasks_from_goal(
 ):
     """Unlink tasks from a goal for authenticated user."""
     return goal_service.unlink_tasks_from_goal(goal_id, current_user["user_id"], link_data)
+
+
+@router.post("/{goal_id}/close", response_model=GoalOut)
+def close_goal(
+    goal_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Close a goal for authenticated user. Idempotent: returns 200 if already closed."""
+    return goal_service.close_goal(goal_id, current_user["user_id"])
+
+
+@router.post("/{goal_id}/reopen", response_model=GoalOut)
+def reopen_goal(
+    goal_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Reopen a goal for authenticated user. Idempotent: returns 200 if already open."""
+    return goal_service.reopen_goal(goal_id, current_user["user_id"])
 
 

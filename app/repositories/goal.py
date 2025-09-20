@@ -79,5 +79,7 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
             parent_goal_id=goal.parent_goal_id,
             end_date=goal.end_date,
             status=goal_status,
+            is_closed=goal.is_closed,
+            closed_at=goal.closed_at,
             created_at=goal.created_at
         )

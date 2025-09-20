@@ -55,6 +55,9 @@ class GoalOut(GoalBase):
     parent_goal_id: Optional[str] = None
     end_date: Optional[datetime] = None
     status: GoalStatus = "on_target"
+    # Goal lifecycle fields
+    is_closed: bool = False
+    closed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
