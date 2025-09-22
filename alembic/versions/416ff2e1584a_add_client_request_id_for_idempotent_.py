@@ -29,12 +29,12 @@ def upgrade():
         # We rely on application-level enforcement for SQLite
         pass
     else:
-        # Add partial unique constraint for PostgreSQL: UNIQUE(user_id, client_request_id) WHERE client_request_id IS NOT NULL
-        op.create_unique_constraint(
-            'uq_task_user_client_request_id',
-            'tasks',
-            ['user_id', 'client_request_id'],
-            postgresql_where=sa.text('client_request_id IS NOT NULL')
+        # Add partial unique constraint for PostgreSQL using raw SQL
+        # UNIQUE(user_id, client_request_id) WHERE client_request_id IS NOT NULL
+        op.execute(
+            'CREATE UNIQUE INDEX uq_task_user_client_request_id '
+            'ON tasks (user_id, client_request_id) '
+            'WHERE client_request_id IS NOT NULL'
         )
 
 
@@ -44,8 +44,8 @@ def downgrade():
     dialect = connection.engine.dialect.name
 
     if dialect != 'sqlite':
-        # Drop unique constraint for PostgreSQL
-        op.drop_constraint('uq_task_user_client_request_id', 'tasks', type_='unique')
+        # Drop unique index for PostgreSQL
+        op.execute('DROP INDEX IF EXISTS uq_task_user_client_request_id')
 
     # Drop client_request_id column
     op.drop_column('tasks', 'client_request_id')
