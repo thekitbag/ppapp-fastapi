@@ -48,6 +48,22 @@ class TaskService(BaseService):
                     return self.task_repo.to_schema(existing_task), was_created
 
             task = self.task_repo.create_with_tags(task_in, user_id)
+
+            # Handle goal linking at creation time
+            goal_ids_to_link = []
+
+            # Collect goal IDs from both new 'goals' array and legacy 'goal_id' field
+            if task_in.goals:
+                goal_ids_to_link.extend(task_in.goals)
+            if task_in.goal_id:
+                goal_ids_to_link.append(task_in.goal_id)
+
+            # Remove duplicates while preserving order
+            goal_ids_to_link = list(dict.fromkeys(goal_ids_to_link))
+
+            if goal_ids_to_link:
+                self._link_task_to_goals(task.id, user_id, goal_ids_to_link)
+
             self.commit()
 
             self.logger.info(f"Task created successfully: {task.id}")
@@ -56,6 +72,56 @@ class TaskService(BaseService):
         except Exception as e:
             self.rollback()
             self.logger.error(f"Failed to create task: {str(e)}")
+            raise
+
+    def _link_task_to_goals(self, task_id: str, user_id: str, goal_ids: List[str]):
+        """Link a task to multiple goals with validation. Only weekly goals allowed."""
+        from app.models import Goal, TaskGoal
+        import uuid
+
+        try:
+            self.logger.info(f"Linking task {task_id} to {len(goal_ids)} goals")
+
+            # Verify all goals exist and belong to user
+            goals = self.db.query(Goal).filter(Goal.id.in_(goal_ids), Goal.user_id == user_id).all()
+            goals_found = {goal.id: goal for goal in goals}
+            goals_requested = set(goal_ids)
+
+            missing_goals = goals_requested - set(goals_found.keys())
+            if missing_goals:
+                raise ValidationError(f"Goals not found: {list(missing_goals)}")
+
+            # Validate that all goals are weekly type
+            for goal_id in goal_ids:
+                goal = goals_found[goal_id]
+                if goal.type and goal.type.value != "weekly":
+                    raise ValidationError(f"Only weekly goals can have tasks linked to them. Goal {goal_id} is {goal.type.value}")
+
+            # Check which links already exist
+            existing_links = self.db.query(TaskGoal).filter(
+                TaskGoal.task_id == task_id,
+                TaskGoal.goal_id.in_(goal_ids),
+                TaskGoal.user_id == user_id
+            ).all()
+
+            existing_goal_ids = {link.goal_id for link in existing_links}
+
+            # Create new links for goals that aren't already linked
+            for goal_id in goal_ids:
+                if goal_id not in existing_goal_ids:
+                    link = TaskGoal(
+                        id=f"taskgoal_{uuid.uuid4()}",
+                        task_id=task_id,
+                        goal_id=goal_id,
+                        user_id=user_id
+                    )
+                    self.db.add(link)
+                    self.logger.debug(f"Created link: task {task_id} -> goal {goal_id}")
+
+            # Note: commit is handled by the calling method
+
+        except Exception as e:
+            self.logger.error(f"Failed to link task {task_id} to goals: {str(e)}")
             raise
     
     def get_task(self, task_id: str, user_id: str) -> TaskOut:
