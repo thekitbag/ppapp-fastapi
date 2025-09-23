@@ -69,7 +69,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
     
     def create_with_tags(self, task_in: TaskCreate, user_id: str) -> Task:
         """Create task with tags for specific user."""
-        task_data = task_in.model_dump(exclude={"tags", "insert_at"})
+        task_data = task_in.model_dump(exclude={"tags", "insert_at", "goals"})
 
         # Calculate sort_order based on insert_at preference
         if "sort_order" not in task_data or task_data["sort_order"] is None:

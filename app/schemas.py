@@ -89,7 +89,8 @@ class KROut(BaseModel):
 
 class TaskGoalLink(BaseModel):
     task_ids: List[str]
-    goal_id: str
+    # goal_id is provided via the path param; keep optional for backward-compat payloads
+    goal_id: Optional[str] = None
 
 class TaskGoalLinkResponse(BaseModel):
     linked: List[str]
@@ -134,6 +135,7 @@ class TaskCreate(TaskBase):
     sort_order: Optional[float] = None
     insert_at: Optional[Literal["top", "bottom"]] = Field(default="top", description="Position for new task in status bucket")
     client_request_id: Optional[str] = Field(default=None, description="Optional client-generated token for idempotent requests")
+    goals: Optional[List[str]] = Field(default=None, description="Array of goal IDs to link to this task")
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
