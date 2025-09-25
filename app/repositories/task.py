@@ -309,7 +309,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
                 soft_due_at=task.soft_due_at,
                 energy=task.energy.value if task.energy else None,
                 project_id=task.project_id,
-                goal_id=task.goal_id,  # Keep for backward compatibility
+                goal_id=linked_goals[0].id if linked_goals else task.goal_id,  # Derived for backward compatibility
                 goals=[GoalSummary(id=g.id, title=g.title) for g in linked_goals],
                 created_at=task.created_at,
                 updated_at=task.updated_at
@@ -335,6 +335,14 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
                 Goal.user_id == task.user_id
             ).all()
         
+        # For backward compatibility, prioritize original goal_id if available
+        if hasattr(task, '_original_goal_id') and task._original_goal_id:
+            backward_compat_goal_id = task._original_goal_id
+        elif task_goals:
+            backward_compat_goal_id = task_goals[0].id
+        else:
+            backward_compat_goal_id = task.goal_id
+
         return TaskOut(
             id=task.id,
             title=task.title,
@@ -348,7 +356,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             soft_due_at=task.soft_due_at,
             energy=task.energy.value if task.energy else None,
             project_id=task.project_id,
-            goal_id=task.goal_id,  # Keep for backward compatibility
+            goal_id=backward_compat_goal_id,  # Derived for backward compatibility
             goals=[GoalSummary(id=g.id, title=g.title) for g in task_goals],
             created_at=task.created_at,
             updated_at=task.updated_at
