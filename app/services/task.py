@@ -47,10 +47,9 @@ class TaskService(BaseService):
                     self.logger.info(f"Idempotent task request: returning existing task {existing_task.id}")
                     return self.task_repo.to_schema(existing_task), was_created
 
-            task = self.task_repo.create_with_tags(task_in, user_id)
-
             # Handle goal linking at creation time
             goal_ids_to_link = []
+            original_goal_id = task_in.goal_id  # Save for backward compatibility
 
             # Collect goal IDs from both new 'goals' array and legacy 'goal_id' field
             if task_in.goals:
@@ -61,8 +60,18 @@ class TaskService(BaseService):
             # Remove duplicates while preserving order
             goal_ids_to_link = list(dict.fromkeys(goal_ids_to_link))
 
+            # If we're going to create goal links, don't save legacy goal_id to avoid duplication
+            if goal_ids_to_link:
+                # Clear goal_id to prevent it being saved to database
+                task_in.goal_id = None
+
+            task = self.task_repo.create_with_tags(task_in, user_id)
+
             if goal_ids_to_link:
                 self._link_task_to_goals(task.id, user_id, goal_ids_to_link)
+                # For backward compatibility, temporarily store original goal_id on task instance
+                # This will be used by to_schema method and not persisted to database
+                task._original_goal_id = original_goal_id
 
             self.commit()
 
