@@ -196,6 +196,7 @@ class Goal(Base):
     # Goal lifecycle fields
     is_closed = Column(Boolean, nullable=False, default=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)
+    is_archived = Column(Boolean, nullable=False, default=False)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)  # Will be NOT NULL after backfill

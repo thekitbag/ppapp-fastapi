@@ -46,9 +46,9 @@ class GoalService(BaseService):
         
         return self.goal_repo.to_schema(goal)
     
-    def list_goals(self, user_id: str, skip: int = 0, limit: int = 100, is_closed: bool = None) -> List[GoalSchema]:
-        """List goals with optional is_closed filter."""
-        self.logger.debug(f"Listing goals (is_closed={is_closed})")
+    def list_goals(self, user_id: str, skip: int = 0, limit: int = 100, is_closed: bool = None, include_archived: bool = False) -> List[GoalSchema]:
+        """List goals with optional is_closed filter and archive exclusion."""
+        self.logger.debug(f"Listing goals (is_closed={is_closed}, include_archived={include_archived})")
 
         if limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
@@ -56,6 +56,10 @@ class GoalService(BaseService):
         from app.models import Goal
 
         query = self.db.query(Goal).filter(Goal.user_id == user_id)
+
+        # Exclude archived goals by default
+        if not include_archived:
+            query = query.filter(Goal.is_archived == False)
 
         # Apply is_closed filter if specified
         if is_closed is not None:
@@ -433,16 +437,18 @@ class GoalService(BaseService):
             
         return False
     
-    def get_goals_tree(self, user_id: str, include_tasks: bool = False, include_closed: bool = False) -> List[GoalNode]:
+    def get_goals_tree(self, user_id: str, include_tasks: bool = False, include_closed: bool = False, include_archived: bool = False) -> List[GoalNode]:
         """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
         try:
-            self.logger.debug(f"Building goals tree (include_closed={include_closed})")
+            self.logger.debug(f"Building goals tree (include_closed={include_closed}, include_archived={include_archived})")
             from app.models import Goal
 
-            # Get goals for this user with optional closed filter
+            # Get goals for this user with optional closed and archived filters
             query = self.db.query(Goal).filter(Goal.user_id == user_id)
             if not include_closed:
                 query = query.filter(Goal.is_closed == False)
+            if not include_archived:
+                query = query.filter(Goal.is_archived == False)
 
             all_goals = query.all()
             
@@ -513,20 +519,24 @@ class GoalService(BaseService):
             self.logger.error(f"Failed to build goals tree: {str(e)}")
             raise
     
-    def get_goals_by_type(self, user_id: str, goal_type: str, parent_id: str = None) -> List[GoalOut]:
-        """Get goals filtered by type and optionally by parent."""
+    def get_goals_by_type(self, user_id: str, goal_type: str, parent_id: str = None, include_archived: bool = False) -> List[GoalOut]:
+        """Get goals filtered by type and optionally by parent, excluding archived goals by default."""
         try:
-            self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}")
+            self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}, include_archived: {include_archived}")
             from app.models import Goal, GoalTypeEnum
             from sqlalchemy.orm import aliased
-            
+
             # Coerce incoming string to Enum for consistent filtering across dialects
             try:
                 type_enum = GoalTypeEnum(goal_type)
             except Exception:
                 raise ValidationError("Invalid goal type")
-            
+
             query = self.db.query(Goal).filter(Goal.type == type_enum, Goal.user_id == user_id)
+
+            # Exclude archived goals by default
+            if not include_archived:
+                query = query.filter(Goal.is_archived == False)
             
             if parent_id:
                 query = query.filter(Goal.parent_goal_id == parent_id)
@@ -620,4 +630,60 @@ class GoalService(BaseService):
         except Exception as e:
             self.rollback()
             self.logger.error(f"Failed to reopen goal {goal_id}: {str(e)}")
+            raise
+
+    def archive_goal(self, goal_id: str, user_id: str) -> GoalSchema:
+        """Archive a goal by setting is_archived=True."""
+        try:
+            self.logger.info(f"Archiving goal: {goal_id}")
+
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+
+            # Idempotent: if already archived, return current state
+            if goal.is_archived:
+                self.logger.info(f"Goal {goal_id} already archived")
+                return self.goal_repo.to_schema(goal)
+
+            # Archive the goal
+            goal.is_archived = True
+
+            self.commit()
+            self.db.refresh(goal)
+
+            self.logger.info(f"Goal archived successfully: {goal_id}")
+            return self.goal_repo.to_schema(goal)
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to archive goal {goal_id}: {str(e)}")
+            raise
+
+    def unarchive_goal(self, goal_id: str, user_id: str) -> GoalSchema:
+        """Unarchive a goal by setting is_archived=False."""
+        try:
+            self.logger.info(f"Unarchiving goal: {goal_id}")
+
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+
+            # Idempotent: if already unarchived, return current state
+            if not goal.is_archived:
+                self.logger.info(f"Goal {goal_id} already unarchived")
+                return self.goal_repo.to_schema(goal)
+
+            # Unarchive the goal
+            goal.is_archived = False
+
+            self.commit()
+            self.db.refresh(goal)
+
+            self.logger.info(f"Goal unarchived successfully: {goal_id}")
+            return self.goal_repo.to_schema(goal)
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to unarchive goal {goal_id}: {str(e)}")
             raise

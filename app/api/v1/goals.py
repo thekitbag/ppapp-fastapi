@@ -30,11 +30,12 @@ def list_goals(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     is_closed: bool = Query(None, description="Filter by closed status. None = no filter (all goals)"),
+    include_archived: bool = Query(False, description="Include archived goals. Default: exclude archived"),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
-    """List goals for authenticated user with optional closed status filter."""
-    return goal_service.list_goals(current_user["user_id"], skip=skip, limit=limit, is_closed=is_closed)
+    """List goals for authenticated user with optional closed status filter and archive exclusion."""
+    return goal_service.list_goals(current_user["user_id"], skip=skip, limit=limit, is_closed=is_closed, include_archived=include_archived)
 
 
 # Goals v2: Tree and type endpoints must come before /{goal_id} to avoid conflicts
@@ -42,22 +43,24 @@ def list_goals(
 def get_goals_tree(
     include_tasks: bool = Query(False, description="Include linked tasks for weekly goals"),
     include_closed: bool = Query(False, description="Include closed goals in tree. Default: open goals only"),
+    include_archived: bool = Query(False, description="Include archived goals. Default: exclude archived"),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
     """Get hierarchical tree of goals (Annual → Quarterly → Weekly) for authenticated user."""
-    return goal_service.get_goals_tree(current_user["user_id"], include_tasks=include_tasks, include_closed=include_closed)
+    return goal_service.get_goals_tree(current_user["user_id"], include_tasks=include_tasks, include_closed=include_closed, include_archived=include_archived)
 
 
 @router.get("/by-type", response_model=List[GoalOut])
 def get_goals_by_type(
     type: GoalType = Query(..., description="Goal type to filter by"),
     parent_id: str = Query(None, description="Parent goal ID (for quarterly/weekly goals)"),
+    include_archived: bool = Query(False, description="Include archived goals. Default: exclude archived"),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     goal_service: GoalService = Depends(get_goal_service)
 ):
     """Get goals filtered by type and optionally by parent for picker UIs for authenticated user."""
-    return goal_service.get_goals_by_type(current_user["user_id"], type, parent_id)
+    return goal_service.get_goals_by_type(current_user["user_id"], type, parent_id, include_archived=include_archived)
 
 
 @router.get("/{goal_id}", response_model=GoalDetail)
@@ -156,5 +159,25 @@ def reopen_goal(
 ):
     """Reopen a goal for authenticated user. Idempotent: returns 200 if already open."""
     return goal_service.reopen_goal(goal_id, current_user["user_id"])
+
+
+@router.post("/{goal_id}/archive", response_model=GoalOut)
+def archive_goal(
+    goal_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Archive a goal for authenticated user. Idempotent: returns 200 if already archived."""
+    return goal_service.archive_goal(goal_id, current_user["user_id"])
+
+
+@router.post("/{goal_id}/unarchive", response_model=GoalOut)
+def unarchive_goal(
+    goal_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Unarchive a goal for authenticated user. Idempotent: returns 200 if already unarchived."""
+    return goal_service.unarchive_goal(goal_id, current_user["user_id"])
 
 

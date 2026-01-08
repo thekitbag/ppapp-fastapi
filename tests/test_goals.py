@@ -792,3 +792,68 @@ def test_goals_tree_with_path():
 
     # Weekly goal should show full ancestry: Annual › Quarterly
     assert our_weekly["path"] == f"Path Annual {timestamp} › Path Quarterly {timestamp}"
+
+def test_archive_and_unarchive_goal():
+    """Test archiving and unarchiving a goal."""
+    timestamp = _timestamp()
+
+    # Create an annual goal
+    create_response = client.post("/api/v1/goals/", json={
+        "title": f"Archive Test Goal {timestamp}",
+        "description": "Test archiving",
+        "type": "annual"
+    })
+    assert create_response.status_code == 201
+    goal = create_response.json()
+    goal_id = goal["id"]
+
+    # Verify goal is not archived initially
+    assert goal.get("is_archived") is None or goal.get("is_archived") == False
+
+    # List goals - should include our goal
+    list_response = client.get("/api/v1/goals/")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+    goal_ids = [g["id"] for g in goals]
+    assert goal_id in goal_ids
+
+    # Archive the goal
+    archive_response = client.post(f"/api/v1/goals/{goal_id}/archive")
+    assert archive_response.status_code == 200
+    archived_goal = archive_response.json()
+
+    # List goals again - should NOT include archived goal by default
+    list_response = client.get("/api/v1/goals/")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+    goal_ids = [g["id"] for g in goals]
+    assert goal_id not in goal_ids
+
+    # List goals with include_archived=true - should include archived goal
+    list_response = client.get("/api/v1/goals/?include_archived=true")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+    goal_ids = [g["id"] for g in goals]
+    assert goal_id in goal_ids
+
+    # Unarchive the goal
+    unarchive_response = client.post(f"/api/v1/goals/{goal_id}/unarchive")
+    assert unarchive_response.status_code == 200
+    unarchived_goal = unarchive_response.json()
+
+    # List goals - should include our goal again
+    list_response = client.get("/api/v1/goals/")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+    goal_ids = [g["id"] for g in goals]
+    assert goal_id in goal_ids
+
+    # Test idempotency - archiving again should return 200
+    archive_response = client.post(f"/api/v1/goals/{goal_id}/archive")
+    assert archive_response.status_code == 200
+
+    # Test idempotency - unarchiving again should return 200
+    unarchive_response = client.post(f"/api/v1/goals/{goal_id}/unarchive")
+    assert unarchive_response.status_code == 200
+    unarchive_response = client.post(f"/api/v1/goals/{goal_id}/unarchive")
+    assert unarchive_response.status_code == 200
