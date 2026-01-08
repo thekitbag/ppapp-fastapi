@@ -518,11 +518,14 @@ class GoalService(BaseService):
         try:
             self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}")
             from app.models import Goal, GoalTypeEnum
+            from sqlalchemy.orm import aliased
+            
             # Coerce incoming string to Enum for consistent filtering across dialects
             try:
                 type_enum = GoalTypeEnum(goal_type)
             except Exception:
                 raise ValidationError("Invalid goal type")
+            
             query = self.db.query(Goal).filter(Goal.type == type_enum, Goal.user_id == user_id)
             
             if parent_id:
@@ -530,6 +533,18 @@ class GoalService(BaseService):
             elif goal_type == "annual":
                 # Annual goals should have no parent
                 query = query.filter(Goal.parent_goal_id.is_(None))
+            else:
+                # For quarterly/weekly, ensure parent is not closed
+                # Short-term fix: Filter out goals whose parents are closed
+                ParentGoal = aliased(Goal)
+                query = query.outerjoin(ParentGoal, Goal.parent_goal_id == ParentGoal.id)
+                
+                # We want goals where:
+                # 1. Parent exists AND is NOT closed
+                # 2. OR Parent does not exist (technically invalid for weekly/quarterly but we handle it gracefully)
+                query = query.filter(
+                    (ParentGoal.id == None) | (ParentGoal.is_closed == False)
+                )
                 
             goals = query.order_by(Goal.end_date.asc().nullslast(), Goal.created_at.asc()).all()
             
@@ -540,7 +555,7 @@ class GoalService(BaseService):
             raise
 
     def close_goal(self, goal_id: str, user_id: str) -> GoalSchema:
-        """Close a goal by setting is_closed=True and closed_at=now."""
+        """Close a goal and its descendants by setting is_closed=True and closed_at=now."""
         try:
             self.logger.info(f"Closing goal: {goal_id}")
 
@@ -548,20 +563,29 @@ class GoalService(BaseService):
             if not goal:
                 raise NotFoundError("Goal", goal_id)
 
-            # Idempotent: if already closed, return current state
-            if goal.is_closed:
-                self.logger.info(f"Goal {goal_id} already closed")
-                return self.goal_repo.to_schema(goal)
-
-            # Close the goal
             from datetime import datetime, timezone
-            goal.is_closed = True
-            goal.closed_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+
+            # Recursive closure function
+            def close_recursive(current_goal):
+                # Idempotent check at individual level
+                if not current_goal.is_closed:
+                    current_goal.is_closed = True
+                    current_goal.closed_at = now
+                    self.db.add(current_goal)
+                
+                # Recurse for children
+                # Accessing .children triggers lazy load if not eager loaded
+                for child in current_goal.children:
+                    close_recursive(child)
+
+            # Apply recursion
+            close_recursive(goal)
 
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal closed successfully: {goal_id} at {goal.closed_at}")
+            self.logger.info(f"Goal and descendants closed successfully: {goal_id}")
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:

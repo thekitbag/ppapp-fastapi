@@ -1,12 +1,25 @@
-.PHONY: dev seed
+.PHONY: dev seed test
+
+# Use binaries from the virtual environment
+VENV = .venv
+BIN = $(VENV)/bin
+
+# If .venv doesn't exist, we might be in a container or system environment, 
+# so we fall back to PATH (optional, but good for flexibility)
+ifneq ($(wildcard $(BIN)/uvicorn),)
+    UVICORN = $(BIN)/uvicorn
+    PYTEST = $(BIN)/pytest
+else
+    UVICORN = uvicorn
+    PYTEST = pytest
+endif
 
 dev:
-	uvicorn app.main:app --reload
+	$(UVICORN) app.main:app --reload
 
 seed:
 	bash scripts/seed.sh
 
-.PHONY: test
 test:
-	PYTHONPATH=$(PWD) pytest --disable-warnings --maxfail=1
+	PYTHONPATH=$(PWD) $(PYTEST) --disable-warnings --maxfail=1
 
