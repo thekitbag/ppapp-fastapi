@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
+from pydantic import BaseModel
 
 from app.db import get_db
 from app.services import GoalService
@@ -179,5 +180,45 @@ def unarchive_goal(
 ):
     """Unarchive a goal for authenticated user. Idempotent: returns 200 if already unarchived."""
     return goal_service.unarchive_goal(goal_id, current_user["user_id"])
+
+
+class PriorityUpdate(BaseModel):
+    priority: float
+
+
+class ReorderRequest(BaseModel):
+    direction: str  # "up" or "down"
+
+
+@router.post("/{goal_id}/priority", response_model=GoalOut)
+def update_goal_priority(
+    goal_id: str,
+    payload: PriorityUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """Update a goal's priority. Higher values = higher priority (displayed first)."""
+    return goal_service.update_goal_priority(goal_id, current_user["user_id"], payload.priority)
+
+
+@router.post("/{goal_id}/reorder", response_model=GoalOut)
+def reorder_goal(
+    goal_id: str,
+    payload: ReorderRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    goal_service: GoalService = Depends(get_goal_service)
+):
+    """
+    Smart reordering endpoint. Swaps goal with adjacent sibling.
+    Automatically fixes priority collisions with self-healing re-indexing.
+
+    Args:
+        goal_id: ID of the goal to reorder
+        payload: {"direction": "up" | "down"}
+
+    Returns:
+        Updated goal object
+    """
+    return goal_service.reorder_goal(goal_id, current_user["user_id"], payload.direction)
 
 

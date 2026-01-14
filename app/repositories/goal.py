@@ -81,5 +81,6 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
             status=goal_status,
             is_closed=goal.is_closed,
             closed_at=goal.closed_at,
+            priority=goal.priority,
             created_at=goal.created_at
         )

@@ -65,8 +65,8 @@ class GoalService(BaseService):
         if is_closed is not None:
             query = query.filter(Goal.is_closed == is_closed)
 
-        # Apply pagination and ordering
-        goals = query.order_by(Goal.end_date.asc().nullslast(), Goal.created_at.asc()).offset(skip).limit(limit).all()
+        # Apply pagination and ordering (priority DESC = highest first, then by end_date, then created_at)
+        goals = query.order_by(Goal.priority.desc(), Goal.end_date.asc().nullslast(), Goal.created_at.asc()).offset(skip).limit(limit).all()
 
         return [self.goal_repo.to_schema(goal) for goal in goals]
     
@@ -495,7 +495,7 @@ class GoalService(BaseService):
                     "closed_at": goal.closed_at,
                     "created_at": goal.created_at,
                     "path": path,
-                    "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))]
+                    "children": [build_tree_node(child) for child in sorted(children_goals, key=lambda g: (-g.priority, g.end_date or g.created_at, g.created_at))]
                 }
                 
                 # Add tasks for weekly goals if requested
@@ -508,8 +508,8 @@ class GoalService(BaseService):
                 
                 return GoalNode(**node_data)
             
-            # Build tree starting from root goals (annuals), sorted by end_date then created_at
-            root_goals_sorted = sorted(root_goals, key=lambda g: (g.end_date or g.created_at, g.created_at))
+            # Build tree starting from root goals (annuals), sorted by priority (desc), then end_date, then created_at
+            root_goals_sorted = sorted(root_goals, key=lambda g: (-g.priority, g.end_date or g.created_at, g.created_at))
             tree = [build_tree_node(goal) for goal in root_goals_sorted]
             
             self.logger.debug(f"Built goals tree with {len(tree)} root nodes")
@@ -555,8 +555,8 @@ class GoalService(BaseService):
                 query = query.filter(
                     (ParentGoal.id == None) | (ParentGoal.is_closed == False)
                 )
-                
-            goals = query.order_by(Goal.end_date.asc().nullslast(), Goal.created_at.asc()).all()
+
+            goals = query.order_by(Goal.priority.desc(), Goal.end_date.asc().nullslast(), Goal.created_at.asc()).all()
             
             return [self.goal_repo.to_schema(goal) for goal in goals]
             
@@ -686,4 +686,148 @@ class GoalService(BaseService):
         except Exception as e:
             self.rollback()
             self.logger.error(f"Failed to unarchive goal {goal_id}: {str(e)}")
+            raise
+
+    def update_goal_priority(self, goal_id: str, user_id: str, new_priority: float) -> GoalSchema:
+        """Update a goal's priority value. Higher values = higher priority (displayed first)."""
+        try:
+            self.logger.info(f"Updating priority for goal {goal_id} to {new_priority}")
+
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+
+            # Update priority
+            goal.priority = new_priority
+
+            self.commit()
+            self.db.refresh(goal)
+
+            self.logger.info(f"Goal priority updated successfully: {goal_id}")
+            return self.goal_repo.to_schema(goal)
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to update priority for goal {goal_id}: {str(e)}")
+            raise
+
+    def reorder_goal(self, goal_id: str, user_id: str, direction: str) -> GoalSchema:
+        """
+        Smart reordering with self-healing.
+        Swaps a goal with its adjacent sibling (same parent_id and type).
+        Automatically fixes duplicate priorities by re-indexing siblings.
+
+        Args:
+            goal_id: The goal to reorder
+            user_id: The user ID
+            direction: "up" or "down"
+        """
+        try:
+            self.logger.info(f"Reordering goal {goal_id} {direction}")
+
+            from app.models import Goal
+
+            # Validate direction
+            if direction not in ["up", "down"]:
+                raise ValidationError("Direction must be 'up' or 'down'")
+
+            # Get the target goal
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
+            if not goal:
+                raise NotFoundError("Goal", goal_id)
+
+            # Fetch all siblings (same parent_id and type, not archived/closed)
+            query = self.db.query(Goal).filter(
+                Goal.user_id == user_id,
+                Goal.is_archived == False,
+                Goal.is_closed == False
+            )
+
+            # Match parent_id (handle None case)
+            if goal.parent_goal_id is not None:
+                query = query.filter(Goal.parent_goal_id == goal.parent_goal_id)
+            else:
+                query = query.filter(Goal.parent_goal_id.is_(None))
+
+            # Match type (handle None case)
+            if goal.type is not None:
+                query = query.filter(Goal.type == goal.type)
+            else:
+                query = query.filter(Goal.type.is_(None))
+
+            # Get all siblings including the target goal
+            siblings = query.all()
+
+            # Sort siblings by priority DESC (highest first), then created_at ASC
+            siblings.sort(key=lambda g: (-g.priority, g.created_at))
+
+            # Find current index
+            try:
+                current_index = next(i for i, g in enumerate(siblings) if g.id == goal_id)
+            except StopIteration:
+                raise ValidationError(f"Goal {goal_id} not found in sibling list")
+
+            # Determine neighbor index
+            if direction == "up":
+                neighbor_index = current_index - 1
+            else:  # down
+                neighbor_index = current_index + 1
+
+            # Guard: out of bounds check
+            if neighbor_index < 0 or neighbor_index >= len(siblings):
+                self.logger.info(f"Goal {goal_id} already at {direction}most position")
+                return self.goal_repo.to_schema(goal)
+
+            # Check for priority collisions in the sibling list
+            priorities = [g.priority for g in siblings]
+            has_collisions = len(priorities) != len(set(priorities))
+
+            if has_collisions:
+                # Self-healing: Re-index entire sibling list with spacing of 10
+                self.logger.info(f"Detected priority collisions, re-indexing {len(siblings)} siblings")
+
+                # Calculate base priority (start high, go down by 10 each)
+                base_priority = len(siblings) * 10
+                for i, sibling in enumerate(siblings):
+                    sibling.priority = base_priority - (i * 10)
+                    self.db.add(sibling)
+
+                # Re-fetch after normalization to get clean state
+                self.commit()
+                self.db.refresh(goal)
+
+                # Re-sort after normalization
+                siblings.sort(key=lambda g: (-g.priority, g.created_at))
+                current_index = next(i for i, g in enumerate(siblings) if g.id == goal_id)
+
+                if direction == "up":
+                    neighbor_index = current_index - 1
+                else:
+                    neighbor_index = current_index + 1
+
+                if neighbor_index < 0 or neighbor_index >= len(siblings):
+                    return self.goal_repo.to_schema(goal)
+
+            # Swap priorities
+            target_goal = siblings[current_index]
+            neighbor_goal = siblings[neighbor_index]
+
+            target_priority = target_goal.priority
+            neighbor_priority = neighbor_goal.priority
+
+            target_goal.priority = neighbor_priority
+            neighbor_goal.priority = target_priority
+
+            self.db.add(target_goal)
+            self.db.add(neighbor_goal)
+
+            self.commit()
+            self.db.refresh(goal)
+
+            self.logger.info(f"Goal reordered successfully: {goal_id}")
+            return self.goal_repo.to_schema(goal)
+
+        except Exception as e:
+            self.rollback()
+            self.logger.error(f"Failed to reorder goal {goal_id}: {str(e)}")
             raise

@@ -38,6 +38,7 @@ class GoalCreate(GoalBase):
     parent_goal_id: Optional[str] = None
     end_date: Optional[datetime] = None
     status: Optional[GoalStatus] = "on_target"
+    priority: Optional[float] = 0.0
 
 class GoalUpdate(BaseModel):
     title: Optional[str] = None
@@ -47,6 +48,7 @@ class GoalUpdate(BaseModel):
     parent_goal_id: Optional[str] = None
     end_date: Optional[datetime] = None
     status: Optional[GoalStatus] = None
+    priority: Optional[float] = None
 
 class GoalOut(GoalBase):
     id: str
@@ -58,6 +60,7 @@ class GoalOut(GoalBase):
     # Goal lifecycle fields
     is_closed: bool = False
     closed_at: Optional[datetime] = None
+    priority: float = 0.0
 
     class Config:
         from_attributes = True

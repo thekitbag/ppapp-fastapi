@@ -857,3 +857,267 @@ def test_archive_and_unarchive_goal():
     assert unarchive_response.status_code == 200
     unarchive_response = client.post(f"/api/v1/goals/{goal_id}/unarchive")
     assert unarchive_response.status_code == 200
+
+def test_goal_priority_ordering():
+    """Test that goals are ordered by priority (highest first)."""
+    timestamp = _timestamp()
+
+    # Create three goals with different priorities
+    goal_low = client.post("/api/v1/goals/", json={
+        "title": f"Low Priority {timestamp}",
+        "type": "annual",
+        "priority": 1.0
+    }).json()
+
+    goal_high = client.post("/api/v1/goals/", json={
+        "title": f"High Priority {timestamp}",
+        "type": "annual",
+        "priority": 10.0
+    }).json()
+
+    goal_medium = client.post("/api/v1/goals/", json={
+        "title": f"Medium Priority {timestamp}",
+        "type": "annual",
+        "priority": 5.0
+    }).json()
+
+    # Verify priorities were set correctly
+    assert goal_low["priority"] == 1.0
+    assert goal_high["priority"] == 10.0
+    assert goal_medium["priority"] == 5.0
+
+    # List goals - should be ordered by priority (high to low)
+    list_response = client.get("/api/v1/goals/")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+
+    # Find our test goals in the list
+    our_goals = [g for g in goals if g["id"] in [goal_low["id"], goal_high["id"], goal_medium["id"]]]
+    assert len(our_goals) == 3
+
+    # They should be ordered: high (10.0), medium (5.0), low (1.0)
+    assert our_goals[0]["id"] == goal_high["id"]
+    assert our_goals[1]["id"] == goal_medium["id"]
+    assert our_goals[2]["id"] == goal_low["id"]
+
+    # Update priority using the priority endpoint
+    update_response = client.post(f"/api/v1/goals/{goal_low['id']}/priority", json={"priority": 15.0})
+    assert update_response.status_code == 200
+    updated_goal = update_response.json()
+    assert updated_goal["priority"] == 15.0
+
+    # List goals again - low priority goal should now be first
+    list_response = client.get("/api/v1/goals/")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+
+    our_goals = [g for g in goals if g["id"] in [goal_low["id"], goal_high["id"], goal_medium["id"]]]
+    assert len(our_goals) == 3
+
+    # Now ordered: low (15.0), high (10.0), medium (5.0)
+    assert our_goals[0]["id"] == goal_low["id"]
+    assert our_goals[1]["id"] == goal_high["id"]
+    assert our_goals[2]["id"] == goal_medium["id"]
+
+    # Test updating priority via PATCH endpoint
+    patch_response = client.patch(f"/api/v1/goals/{goal_medium['id']}", json={"priority": 20.0})
+    assert patch_response.status_code == 200
+    patched_goal = patch_response.json()
+    assert patched_goal["priority"] == 20.0
+
+def test_goal_priority_extreme_values():
+    """Test that priority can handle values outside -1 to 1 range."""
+    timestamp = _timestamp()
+
+    # Create goal with very high priority
+    goal_high = client.post("/api/v1/goals/", json={
+        "title": f"Very High Priority {timestamp}",
+        "type": "annual",
+        "priority": 1000.0
+    }).json()
+
+    assert goal_high["priority"] == 1000.0
+
+    # Create goal with very low priority
+    goal_low = client.post("/api/v1/goals/", json={
+        "title": f"Very Low Priority {timestamp}",
+        "type": "annual",
+        "priority": -500.0
+    }).json()
+
+    assert goal_low["priority"] == -500.0
+
+    # Update to even more extreme value
+    update_response = client.post(f"/api/v1/goals/{goal_high['id']}/priority", json={"priority": 10000.0})
+    assert update_response.status_code == 200
+    updated_goal = update_response.json()
+    assert updated_goal["priority"] == 10000.0
+
+    # Verify ordering with extreme values
+    list_response = client.get("/api/v1/goals/")
+    assert list_response.status_code == 200
+    goals = list_response.json()
+
+    # Find our test goals
+    our_goals = [g for g in goals if g["id"] in [goal_high["id"], goal_low["id"]]]
+
+    # The 10000 priority goal should come first
+    first_goal = next(g for g in goals if g["id"] == goal_high["id"])
+    last_goal = next(g for g in goals if g["id"] == goal_low["id"])
+
+    # Verify first_goal has higher priority than last_goal
+    assert first_goal["priority"] > last_goal["priority"]
+
+def test_goal_reorder_up_down():
+    """Test the smart reorder endpoint with up/down directions."""
+    timestamp = _timestamp()
+
+    # Create 4 annual goals with very high priorities to ensure they're at the top
+    goals = []
+    for i in range(4):
+        goal = client.post("/api/v1/goals/", json={
+            "title": f"Reorder Test Goal {i} {timestamp}",
+            "type": "annual",
+            "priority": 10000.0 + ((3 - i) * 10.0)  # 10030, 10020, 10010, 10000
+        }).json()
+        goals.append(goal)
+
+    # Helper to get our goals in priority order
+    def get_our_goals_ordered():
+        list_response = client.get("/api/v1/goals/")
+        assert list_response.status_code == 200
+        all_goals = list_response.json()
+        our_goals = [g for g in all_goals if g["id"] in [goal["id"] for goal in goals]]
+        # Sort by priority descending to ensure consistent order
+        our_goals.sort(key=lambda g: -g["priority"])
+        return our_goals
+
+    # Verify initial order
+    our_goals = get_our_goals_ordered()
+    assert len(our_goals) == 4
+    # Should be ordered: 10030, 10020, 10010, 10000
+    assert our_goals[0]["id"] == goals[0]["id"]  # priority 10030
+    assert our_goals[1]["id"] == goals[1]["id"]  # priority 10020
+    assert our_goals[2]["id"] == goals[2]["id"]  # priority 10010
+    assert our_goals[3]["id"] == goals[3]["id"]  # priority 10000
+
+    # Move goal at index 2 (priority 10010) UP - should swap with index 1 (priority 10020)
+    reorder_response = client.post(f"/api/v1/goals/{goals[2]['id']}/reorder", json={"direction": "up"})
+    assert reorder_response.status_code == 200
+
+    # Verify new order
+    our_goals = get_our_goals_ordered()
+
+    # Should now be: 10030, 10020 (swapped from 10010), 10010 (swapped from 10020), 10000
+    assert our_goals[0]["id"] == goals[0]["id"]  # priority 10030 (unchanged)
+    assert our_goals[1]["id"] == goals[2]["id"]  # now has 10020 (was 10010, swapped up)
+    assert our_goals[2]["id"] == goals[1]["id"]  # now has 10010 (was 10020, swapped down)
+    assert our_goals[3]["id"] == goals[3]["id"]  # priority 10000 (unchanged)
+
+    # Move goal at index 0 DOWN - should swap with index 1
+    reorder_response = client.post(f"/api/v1/goals/{goals[0]['id']}/reorder", json={"direction": "down"})
+    assert reorder_response.status_code == 200
+
+    # Verify new order
+    our_goals = get_our_goals_ordered()
+
+    # Now goal[2] should be on top with the highest priority
+    assert our_goals[0]["id"] == goals[2]["id"]  # now top (has 10030 swapped from goals[0])
+    assert our_goals[1]["id"] == goals[0]["id"]  # swapped down from top
+
+    # Try to move top goal UP - should return success without changing anything
+    top_goal_id = our_goals[0]["id"]
+    reorder_response = client.post(f"/api/v1/goals/{top_goal_id}/reorder", json={"direction": "up"})
+    assert reorder_response.status_code == 200
+
+    # Try to move bottom goal DOWN - should return success without changing anything
+    bottom_goal_id = our_goals[3]["id"]
+    reorder_response = client.post(f"/api/v1/goals/{bottom_goal_id}/reorder", json={"direction": "down"})
+    assert reorder_response.status_code == 200
+
+def test_goal_reorder_self_healing():
+    """Test that reorder auto-fixes duplicate priorities."""
+    timestamp = _timestamp()
+
+    # Create 3 goals with DUPLICATE priorities (simulating dirty data)
+    goals = []
+    for i in range(3):
+        goal = client.post("/api/v1/goals/", json={
+            "title": f"Collision Goal {i} {timestamp}",
+            "type": "annual",
+            "priority": 100.0  # Same priority!
+        }).json()
+        goals.append(goal)
+
+    # Verify all have same priority
+    assert goals[0]["priority"] == 100.0
+    assert goals[1]["priority"] == 100.0
+    assert goals[2]["priority"] == 100.0
+
+    # Try to reorder - this should trigger self-healing
+    reorder_response = client.post(f"/api/v1/goals/{goals[1]['id']}/reorder", json={"direction": "down"})
+    assert reorder_response.status_code == 200
+
+    # Fetch goals again - priorities should now be normalized
+    list_response = client.get("/api/v1/goals/")
+    all_goals = list_response.json()
+    our_goals = [g for g in all_goals if g["id"] in [goal["id"] for goal in goals]]
+
+    # Priorities should now be different (spaced by 10)
+    priorities = sorted([g["priority"] for g in our_goals], reverse=True)
+    assert len(set(priorities)) == 3  # All unique now!
+    assert priorities[0] - priorities[1] == 10  # Spaced by 10
+    assert priorities[1] - priorities[2] == 10  # Spaced by 10
+
+def test_goal_reorder_siblings_only():
+    """Test that reorder only affects siblings (same parent_id and type)."""
+    timestamp = _timestamp()
+
+    # Create an annual goal
+    annual = client.post("/api/v1/goals/", json={
+        "title": f"Annual {timestamp}",
+        "type": "annual",
+        "priority": 10.0
+    }).json()
+
+    # Create two quarterly goals under it
+    q1 = client.post("/api/v1/goals/", json={
+        "title": f"Q1 {timestamp}",
+        "type": "quarterly",
+        "parent_goal_id": annual["id"],
+        "priority": 20.0
+    }).json()
+
+    q2 = client.post("/api/v1/goals/", json={
+        "title": f"Q2 {timestamp}",
+        "type": "quarterly",
+        "parent_goal_id": annual["id"],
+        "priority": 10.0
+    }).json()
+
+    # Create another annual goal (different parent, shouldn't be affected)
+    annual2 = client.post("/api/v1/goals/", json={
+        "title": f"Annual 2 {timestamp}",
+        "type": "annual",
+        "priority": 5.0
+    }).json()
+
+    # Move q2 up - should swap with q1 (same parent)
+    reorder_response = client.post(f"/api/v1/goals/{q2['id']}/reorder", json={"direction": "up"})
+    assert reorder_response.status_code == 200
+
+    # Get all goals
+    list_response = client.get("/api/v1/goals/")
+    all_goals = list_response.json()
+
+    # Find our goals
+    q1_updated = next(g for g in all_goals if g["id"] == q1["id"])
+    q2_updated = next(g for g in all_goals if g["id"] == q2["id"])
+    annual2_updated = next(g for g in all_goals if g["id"] == annual2["id"])
+
+    # q2 should now have q1's priority (they swapped)
+    assert q2_updated["priority"] == 20.0
+    assert q1_updated["priority"] == 10.0
+
+    # annual2 should be unchanged (different parent)
+    assert annual2_updated["priority"] == 5.0

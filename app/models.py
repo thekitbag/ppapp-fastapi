@@ -198,6 +198,9 @@ class Goal(Base):
     closed_at = Column(DateTime(timezone=True), nullable=True)
     is_archived = Column(Boolean, nullable=False, default=False)
 
+    # Priority for ordering (higher = more important, displayed first)
+    priority = Column(Float, nullable=False, default=0.0)
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)  # Will be NOT NULL after backfill
     
