@@ -15,7 +15,7 @@ class Settings(BaseModel):
     api_description: str = "A FastAPI application for personal productivity management"
     
     # CORS
-    cors_origins: List[str] = ["*"]
+    cors_origins: List[str] = []
     cors_allow_credentials: bool = True
     cors_allow_methods: List[str] = ["*"]
     cors_allow_headers: List[str] = ["*"]
@@ -63,9 +63,16 @@ class Settings(BaseModel):
         # Load .env.local first, then .env (if they exist)
         load_dotenv(".env.local", override=True)
         load_dotenv(".env", override=False)
+
+        environment = os.getenv("ENVIRONMENT", "development").lower()
         cors_origins_str = os.getenv("CORS_ORIGINS", "")
+        if environment == "production" and not cors_origins_str:
+            raise ValueError("CORS_ORIGINS must be set in production")
+
         if cors_origins_str:
             cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
+            if "*" in cors_origins:
+                raise ValueError("CORS_ORIGINS cannot include '*' (especially when using cookies)")
         else:
             # Default origins for development
             cors_origins = [
@@ -82,7 +89,7 @@ class Settings(BaseModel):
             api_description=os.getenv("API_DESCRIPTION", "A FastAPI application for personal productivity management"),
             cors_origins=cors_origins,
             log_level=os.getenv("LOG_LEVEL", "INFO"),
-            environment=os.getenv("ENVIRONMENT", "development"),
+            environment=environment,
             debug=os.getenv("DEBUG", "true").lower() == "true",
             ms_tenant_id=os.getenv("MS_TENANT_ID"),
             ms_client_id=os.getenv("MS_CLIENT_ID"),

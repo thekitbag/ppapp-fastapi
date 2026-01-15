@@ -35,7 +35,7 @@ class ProjectRepository(BaseRepository[Project, ProjectCreate, ProjectUpdate]):
     
     def update_by_user(self, project_id: str, user_id: str, project_update: ProjectUpdate) -> Project:
         """Update project by ID for specific user."""
-        project = self.get_by_user(project_id, user_id)
+        project = super().get_by_user(project_id, user_id)
         if not project:
             raise NotFoundError("Project", project_id)
         
@@ -43,29 +43,20 @@ class ProjectRepository(BaseRepository[Project, ProjectCreate, ProjectUpdate]):
     
     def get_by_user(self, project_id: str, user_id: str) -> Optional[Project]:
         """Get a project by ID for specific user."""
-        return self.db.execute(
-            select(Project).where(Project.id == project_id, Project.user_id == user_id)
-        ).scalar_one_or_none()
+        return super().get_by_user(project_id, user_id)
     
     def get_multi_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> List[Project]:
         """Get projects for specific user."""
-        result = self.db.execute(
-            select(Project).where(Project.user_id == user_id)
-            .order_by(Project.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        ).scalars().all()
-        
-        return list(result)
+        return super().get_multi_by_user(
+            user_id,
+            skip=skip,
+            limit=limit,
+            order_by=[Project.created_at.desc()],
+        )
     
     def delete_by_user(self, project_id: str, user_id: str) -> bool:
         """Delete a project by ID for specific user."""
-        project = self.get_by_user(project_id, user_id)
-        if not project:
-            return False
-        
-        self.db.delete(project)
-        return True
+        return super().delete_by_user(project_id, user_id)
     
     def to_schema(self, project: Project) -> ProjectSchema:
         """Convert Project model to Project schema."""

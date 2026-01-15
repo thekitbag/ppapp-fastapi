@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional, Literal
 from datetime import datetime, timezone
 
@@ -25,8 +25,7 @@ class Project(ProjectBase):
     id: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class GoalBase(BaseModel):
     title: str
@@ -60,17 +59,16 @@ class GoalOut(GoalBase):
     # Goal lifecycle fields
     is_closed: bool = False
     closed_at: Optional[datetime] = None
+    is_archived: bool = False
     priority: float = 0.0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class GoalSummary(BaseModel):
     id: str
     title: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class KRCreate(BaseModel):
     name: str
@@ -87,8 +85,7 @@ class KROut(BaseModel):
     baseline_value: Optional[float] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TaskGoalLink(BaseModel):
     task_ids: List[str]

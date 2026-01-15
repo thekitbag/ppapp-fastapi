@@ -7,7 +7,7 @@ from app.core import settings, setup_logging, get_logger
 from app.exceptions import AppException, app_exception_handler, general_exception_handler
 from app.api.v1 import api_router
 from app.api.v1 import auth as auth_v1
-from app.db import Base, engine
+from app.testing import configure_test_overrides, is_test_mode
 
 logger = get_logger(__name__)
 
@@ -18,10 +18,6 @@ async def lifespan(app: FastAPI):
     # Startup
     setup_logging()
     logger.info("Starting up Personal Productivity API")
-    
-    # Create database tables
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created/verified")
     
     yield
     
@@ -65,65 +61,8 @@ def create_app() -> FastAPI:
     # Include API routes
     app.include_router(api_router)
 
-    # Test-mode dependency overrides: isolate DB and bypass auth for tests
-    # This runs only under pytest to keep production/dev behavior unchanged
-    try:
-        import os, sys
-        if ("PYTEST_CURRENT_TEST" in os.environ) or ("pytest" in sys.modules):
-            from sqlalchemy import create_engine
-            from sqlalchemy.orm import sessionmaker
-            from app.db import Base
-            from app.api.v1.auth import get_current_user_dep
-            from app.db import get_db as real_get_db
-
-            # Use a dedicated on-disk SQLite DB for tests to persist across requests
-            test_engine = create_engine(
-                "sqlite:///./test.db",
-                connect_args={"check_same_thread": False}
-            )
-            TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-
-            # Recreate schema fresh each run
-            Base.metadata.drop_all(bind=test_engine)
-            Base.metadata.create_all(bind=test_engine)
-
-            # Seed a deterministic test user the auth override will return
-            from app.models import User, ProviderEnum
-            with TestingSessionLocal() as db:
-                user = db.query(User).filter(User.id == "user_test").first()
-                if not user:
-                    user = User(
-                        id="user_test",
-                        provider=ProviderEnum.google,
-                        provider_sub="test_sub",
-                        email="test@example.com",
-                        name="Test User",
-                    )
-                    db.add(user)
-                    db.commit()
-
-            # Override DB dependency to use the test session
-            def override_get_db():
-                db = TestingSessionLocal()
-                try:
-                    yield db
-                finally:
-                    db.close()
-
-            # Override auth dependency to always return the seeded test user
-            def override_current_user_dep():
-                return {
-                    "user_id": "user_test",
-                    "email": "test@example.com",
-                    "name": "Test User",
-                    "provider": "google",
-                }
-
-            app.dependency_overrides[real_get_db] = override_get_db
-            app.dependency_overrides[get_current_user_dep] = override_current_user_dep
-    except Exception:
-        # Never fail app creation due to test-only overrides
-        pass
+    if is_test_mode():
+        configure_test_overrides(app)
     
     # Health check endpoints
     @app.get("/")

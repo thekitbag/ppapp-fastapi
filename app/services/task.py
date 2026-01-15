@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from datetime import datetime, timedelta, date
 
-from app.repositories import TaskRepository
+from app.repositories import TaskRepository, GoalRepository, ProjectRepository
 from app.schemas import TaskCreate, TaskOut
 from app.exceptions import NotFoundError, ValidationError
 from .base import BaseService
@@ -15,6 +15,8 @@ class TaskService(BaseService):
     def __init__(self, db: Session):
         super().__init__(db)
         self.task_repo = TaskRepository(db)
+        self.goal_repo = GoalRepository(db)
+        self.project_repo = ProjectRepository(db)
     
     def create_task(self, task_in: TaskCreate, user_id: str) -> Tuple[TaskOut, bool]:
         """Create a new task for specific user.
@@ -272,8 +274,6 @@ class TaskService(BaseService):
     
     def validate_cross_user_resources(self, user_id: str, task_id: str = None, goal_id: str = None, project_id: str = None) -> bool:
         """Validate that resources belong to the same user before creating links."""
-        from app.models import Goal, Project
-        
         # Validate task ownership
         if task_id:
             task = self.task_repo.get_by_user(task_id, user_id)
@@ -282,13 +282,13 @@ class TaskService(BaseService):
         
         # Validate goal ownership
         if goal_id:
-            goal = self.db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == user_id).first()
+            goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
                 raise NotFoundError("Goal", goal_id)
         
         # Validate project ownership
         if project_id:
-            project = self.db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
+            project = self.project_repo.get_by_user(project_id, user_id)
             if not project:
                 raise NotFoundError("Project", project_id)
         

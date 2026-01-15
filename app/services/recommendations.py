@@ -145,12 +145,17 @@ def prioritize_tasks(
     
     now = datetime.now(timezone.utc)
     ranked: List[Ranked] = []
+
+    user_ids = {t.user_id for t in tasks if getattr(t, "user_id", None)}
     
     # Fetch projects in batch to avoid N+1 queries
     project_ids = list({t.project_id for t in tasks if t.project_id})
     projects_dict = {}
     if db and project_ids:
-        projects = db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
+        projects_query = db.query(models.Project).filter(models.Project.id.in_(project_ids))
+        if user_ids:
+            projects_query = projects_query.filter(models.Project.user_id.in_(user_ids))
+        projects = projects_query.all()
         projects_dict = {p.id: p for p in projects}
     
     # Fetch task-goal links in batch to avoid N+1 queries
@@ -158,7 +163,10 @@ def prioritize_tasks(
     task_goals_dict = {}
     if db and task_ids:
         from app.models import TaskGoal  # Import here to avoid circular imports
-        task_goal_links = db.query(TaskGoal).filter(TaskGoal.task_id.in_(task_ids)).all()
+        task_goal_links_query = db.query(TaskGoal).filter(TaskGoal.task_id.in_(task_ids))
+        if user_ids:
+            task_goal_links_query = task_goal_links_query.filter(TaskGoal.user_id.in_(user_ids))
+        task_goal_links = task_goal_links_query.all()
         
         # Group by task_id
         for link in task_goal_links:
@@ -170,7 +178,10 @@ def prioritize_tasks(
         goal_ids = list({goal_id for goal_list in task_goals_dict.values() for goal_id in goal_list})
         goals_dict = {}
         if goal_ids:
-            goals = db.query(models.Goal).filter(models.Goal.id.in_(goal_ids)).all()
+            goals_query = db.query(models.Goal).filter(models.Goal.id.in_(goal_ids))
+            if user_ids:
+                goals_query = goals_query.filter(models.Goal.user_id.in_(user_ids))
+            goals = goals_query.all()
             goals_dict = {g.id: g for g in goals}
     
     # Calculate max possible raw score

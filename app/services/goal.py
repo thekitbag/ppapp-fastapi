@@ -52,21 +52,13 @@ class GoalService(BaseService):
 
         if limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
-
-        from app.models import Goal
-
-        query = self.db.query(Goal).filter(Goal.user_id == user_id)
-
-        # Exclude archived goals by default
-        if not include_archived:
-            query = query.filter(Goal.is_archived == False)
-
-        # Apply is_closed filter if specified
-        if is_closed is not None:
-            query = query.filter(Goal.is_closed == is_closed)
-
-        # Apply pagination and ordering (priority DESC = highest first, then by end_date, then created_at)
-        goals = query.order_by(Goal.priority.desc(), Goal.end_date.asc().nullslast(), Goal.created_at.asc()).offset(skip).limit(limit).all()
+        goals = self.goal_repo.list_goals(
+            user_id,
+            skip=skip,
+            limit=limit,
+            is_closed=is_closed,
+            include_archived=include_archived,
+        )
 
         return [self.goal_repo.to_schema(goal) for goal in goals]
     
@@ -139,28 +131,44 @@ class GoalService(BaseService):
             raise NotFoundError("Goal", goal_id)
         
         # Batch fetch key results
-        key_results = self.db.query(GoalKR).filter(GoalKR.goal_id == goal_id).all()
+        key_results = (
+            self.db.query(GoalKR)
+            .filter(GoalKR.goal_id == goal_id, GoalKR.user_id == user_id)
+            .all()
+        )
         
         # Batch fetch task links
-        task_links = self.db.query(TaskGoal).filter(TaskGoal.goal_id == goal_id).all()
+        task_links = (
+            self.db.query(TaskGoal)
+            .filter(TaskGoal.goal_id == goal_id, TaskGoal.user_id == user_id)
+            .all()
+        )
         task_ids = [link.task_id for link in task_links]
         
         # Batch fetch all tasks
         tasks = []
         if task_ids:
-            tasks = self.db.query(Task).filter(Task.id.in_(task_ids)).all()
+            tasks = self.db.query(Task).filter(Task.id.in_(task_ids), Task.user_id == user_id).all()
         
         # Batch fetch all task-goal links for these tasks (to populate goals field)
         all_task_goal_links = []
         goal_ids_to_fetch = set()
         if task_ids:
-            all_task_goal_links = self.db.query(TaskGoal).filter(TaskGoal.task_id.in_(task_ids)).all()
+            all_task_goal_links = (
+                self.db.query(TaskGoal)
+                .filter(TaskGoal.task_id.in_(task_ids), TaskGoal.user_id == user_id)
+                .all()
+            )
             goal_ids_to_fetch = {link.goal_id for link in all_task_goal_links}
         
         # Batch fetch all goals for the tasks
         all_goals = {}
         if goal_ids_to_fetch:
-            goals_list = self.db.query(Goal).filter(Goal.id.in_(goal_ids_to_fetch)).all()
+            goals_list = (
+                self.db.query(Goal)
+                .filter(Goal.id.in_(goal_ids_to_fetch), Goal.user_id == user_id)
+                .all()
+            )
             all_goals = {g.id: g for g in goals_list}
         
         # Group task-goal links by task_id
@@ -523,41 +531,16 @@ class GoalService(BaseService):
         """Get goals filtered by type and optionally by parent, excluding archived goals by default."""
         try:
             self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}, include_archived: {include_archived}")
-            from app.models import Goal, GoalTypeEnum
-            from sqlalchemy.orm import aliased
-
-            # Coerce incoming string to Enum for consistent filtering across dialects
             try:
-                type_enum = GoalTypeEnum(goal_type)
-            except Exception:
+                goals = self.goal_repo.list_goals_by_type(
+                    user_id,
+                    goal_type,
+                    parent_id=parent_id,
+                    include_archived=include_archived,
+                )
+            except ValueError:
                 raise ValidationError("Invalid goal type")
 
-            query = self.db.query(Goal).filter(Goal.type == type_enum, Goal.user_id == user_id)
-
-            # Exclude archived goals by default
-            if not include_archived:
-                query = query.filter(Goal.is_archived == False)
-            
-            if parent_id:
-                query = query.filter(Goal.parent_goal_id == parent_id)
-            elif goal_type == "annual":
-                # Annual goals should have no parent
-                query = query.filter(Goal.parent_goal_id.is_(None))
-            else:
-                # For quarterly/weekly, ensure parent is not closed
-                # Short-term fix: Filter out goals whose parents are closed
-                ParentGoal = aliased(Goal)
-                query = query.outerjoin(ParentGoal, Goal.parent_goal_id == ParentGoal.id)
-                
-                # We want goals where:
-                # 1. Parent exists AND is NOT closed
-                # 2. OR Parent does not exist (technically invalid for weekly/quarterly but we handle it gracefully)
-                query = query.filter(
-                    (ParentGoal.id == None) | (ParentGoal.is_closed == False)
-                )
-
-            goals = query.order_by(Goal.priority.desc(), Goal.end_date.asc().nullslast(), Goal.created_at.asc()).all()
-            
             return [self.goal_repo.to_schema(goal) for goal in goals]
             
         except Exception as e:
@@ -736,30 +719,7 @@ class GoalService(BaseService):
             if not goal:
                 raise NotFoundError("Goal", goal_id)
 
-            # Fetch all siblings (same parent_id and type, not archived/closed)
-            query = self.db.query(Goal).filter(
-                Goal.user_id == user_id,
-                Goal.is_archived == False,
-                Goal.is_closed == False
-            )
-
-            # Match parent_id (handle None case)
-            if goal.parent_goal_id is not None:
-                query = query.filter(Goal.parent_goal_id == goal.parent_goal_id)
-            else:
-                query = query.filter(Goal.parent_goal_id.is_(None))
-
-            # Match type (handle None case)
-            if goal.type is not None:
-                query = query.filter(Goal.type == goal.type)
-            else:
-                query = query.filter(Goal.type.is_(None))
-
-            # Get all siblings including the target goal
-            siblings = query.all()
-
-            # Sort siblings by priority DESC (highest first), then created_at ASC
-            siblings.sort(key=lambda g: (-g.priority, g.created_at))
+            siblings = self.goal_repo.list_siblings_for_reorder(user_id, goal)
 
             # Find current index
             try:
