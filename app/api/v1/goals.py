@@ -82,7 +82,7 @@ def update_goal(
     goal_service: GoalService = Depends(get_goal_service)
 ):
     """Update a goal for authenticated user."""
-    update_data = goal_update.dict(exclude_unset=True)
+    update_data = goal_update.model_dump(exclude_unset=True)
     return goal_service.update_goal(goal_id, current_user["user_id"], update_data)
 
 
@@ -220,5 +220,4 @@ def reorder_goal(
         Updated goal object
     """
     return goal_service.reorder_goal(goal_id, current_user["user_id"], payload.direction)
-
 

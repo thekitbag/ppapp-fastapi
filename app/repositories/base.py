@@ -14,11 +14,22 @@ class BaseRepository(ABC, Generic[ModelType, CreateSchemaType, UpdateSchemaType]
     def __init__(self, db: Session, model: type[ModelType]):
         self.db = db
         self.model = model
+
+    def _assert_user_scoped(self) -> None:
+        if not hasattr(self.model, "user_id"):
+            raise ValueError(f"{self.model.__name__} is not user-scoped (missing user_id)")
     
     def get(self, id: str) -> Optional[ModelType]:
         """Get a single record by ID."""
         return self.db.execute(
             select(self.model).where(self.model.id == id)
+        ).scalar_one_or_none()
+
+    def get_by_user(self, id: str, user_id: str) -> Optional[ModelType]:
+        """Get a single record by ID within a user scope."""
+        self._assert_user_scoped()
+        return self.db.execute(
+            select(self.model).where(self.model.id == id, self.model.user_id == user_id)
         ).scalar_one_or_none()
     
     def get_multi(
@@ -41,6 +52,23 @@ class BaseRepository(ABC, Generic[ModelType, CreateSchemaType, UpdateSchemaType]
         return self.db.execute(
             query.offset(skip).limit(limit)
         ).scalars().all()
+
+    def get_multi_by_user(
+        self,
+        user_id: str,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        order_by: Optional[List[Any]] = None,
+    ) -> List[ModelType]:
+        """Get multiple records within a user scope."""
+        self._assert_user_scoped()
+
+        query = select(self.model).where(self.model.user_id == user_id)
+        if order_by:
+            query = query.order_by(*order_by)
+
+        return self.db.execute(query.offset(skip).limit(limit)).scalars().all()
     
     def create(self, obj_in: CreateSchemaType) -> ModelType:
         """Create a new record."""
@@ -66,6 +94,14 @@ class BaseRepository(ABC, Generic[ModelType, CreateSchemaType, UpdateSchemaType]
     def delete(self, id: str) -> bool:
         """Delete a record by ID."""
         db_obj = self.get(id)
+        if db_obj:
+            self.db.delete(db_obj)
+            return True
+        return False
+
+    def delete_by_user(self, id: str, user_id: str) -> bool:
+        """Delete a record by ID within a user scope."""
+        db_obj = self.get_by_user(id, user_id)
         if db_obj:
             self.db.delete(db_obj)
             return True

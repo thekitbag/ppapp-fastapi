@@ -29,3 +29,26 @@ def test_recommendations_returns_why():
     assert "items" in body and len(body["items"]) >= 1
     top = body["items"][0]
     assert "why" in top and isinstance(top["why"], str) and len(top["why"]) > 0
+
+
+def test_recommendations_are_tenant_scoped():
+    # Create one task for each test user
+    r1 = client.post("/api/v1/tasks", json={"title": "User A task"}, headers={"x-test-user-id": "user_test"})
+    assert r1.status_code == 201
+    user_a_task_id = r1.json()["id"]
+
+    r2 = client.post("/api/v1/tasks", json={"title": "User B task"}, headers={"x-test-user-id": "user_other"})
+    assert r2.status_code == 201
+    user_b_task_id = r2.json()["id"]
+
+    # Recommendations for user A should not include user B's task
+    rec_a = client.get("/api/v1/recommendations/next?limit=50", headers={"x-test-user-id": "user_test"}).json()
+    ids_a = {item["task"]["id"] for item in rec_a["items"]}
+    assert user_a_task_id in ids_a
+    assert user_b_task_id not in ids_a
+
+    # Recommendations for user B should not include user A's task
+    rec_b = client.get("/api/v1/recommendations/next?limit=50", headers={"x-test-user-id": "user_other"}).json()
+    ids_b = {item["task"]["id"] for item in rec_b["items"]}
+    assert user_b_task_id in ids_b
+    assert user_a_task_id not in ids_b
