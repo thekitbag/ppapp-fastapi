@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app import models
 
 # Day-2 deterministic formula (Ledders):
-# +10 if status=todo
+# +10 if status=today (tasks explicitly prioritized for today)
 # +5 if due within 24h (hard_due_at or soft_due_at)
 # +2 if has a "goal" tag
 # Break ties by sort_order (ascending)
@@ -199,8 +199,8 @@ def prioritize_tasks(
         linked_goals = [goals_dict.get(goal_id) for goal_id in linked_goal_ids if goal_id in goals_dict] if db else []
         goal_titles = [g.title for g in linked_goals if g]
         
-        # Status boost
-        if getattr(t.status, "value", str(t.status)) == "todo":
+        # Status boost - prioritize tasks marked for today
+        if getattr(t.status, "value", str(t.status)) == "today":
             f.status_boost = 1
         
         # Due proximity

@@ -12,7 +12,7 @@ class _Task(SimpleNamespace):
 class _Project(SimpleNamespace):
     pass
 
-def _mk_task(title, status="inbox", tags=None, hard_due_at=None, soft_due_at=None, sort_order=0, created_at=None, project_id=None):
+def _mk_task(title, status="backlog", tags=None, hard_due_at=None, soft_due_at=None, sort_order=0, created_at=None, project_id=None):
     return _Task(
         id=title,
         title=title,
@@ -37,14 +37,14 @@ def _mk_project(name, milestone_title=None, milestone_due_at=None):
 
 def test_prioritize_tasks_simple_formula():
     now = datetime.now(timezone.utc)
-    t1 = _mk_task("A inbox no due", status="inbox", sort_order=100)
-    t2 = _mk_task("B todo due soon goal", status="todo", tags=["goal"], hard_due_at=now + timedelta(hours=2), sort_order=500)
-    t3 = _mk_task("C todo no due", status="todo", sort_order=10)
+    t1 = _mk_task("A backlog no due", status="backlog", sort_order=100)
+    t2 = _mk_task("B today due soon goal", status="today", tags=["goal"], hard_due_at=now + timedelta(hours=2), sort_order=500)
+    t3 = _mk_task("C today no due", status="today", sort_order=10)
     ranked = prioritize_tasks([t1, t2, t3])
-    # B has +10 (todo) +5 (due soon) +2 (goal) + 0 (no project) = 17 out of possible 17.12 -> ~99%
-    # C has +10 (todo) = 10 out of 17.12 -> ~58%
+    # B has +10 (today) +5 (due soon) +2 (goal) + 0 (no project) = 17 out of possible 17.12 -> ~99%
+    # C has +10 (today) = 10 out of 17.12 -> ~58%
     # A has 0 -> 0
-    assert ranked[0].task.title == "B todo due soon goal"
+    assert ranked[0].task.title == "B today due soon goal"
     assert ranked[0].score > 98  # Should be around 99%
     assert ranked[0].factors["due_proximity"] == 1
     assert ranked[0].factors["goal_align"] == 1
@@ -129,9 +129,9 @@ def test_prioritize_tasks_with_project_milestones():
     mock_db = MockDB()
     
     # Create tasks linked to these projects
-    t1 = _mk_task("Task without project", status="todo", sort_order=0)
-    t2 = _mk_task("Task with soon milestone", status="todo", sort_order=0, project_id="project_websitelaunch")
-    t3 = _mk_task("Task with far milestone", status="todo", sort_order=0, project_id="project_research")
+    t1 = _mk_task("Task without project", status="today", sort_order=0)
+    t2 = _mk_task("Task with soon milestone", status="today", sort_order=0, project_id="project_websitelaunch")
+    t3 = _mk_task("Task with far milestone", status="today", sort_order=0, project_id="project_research")
     
     ranked = prioritize_tasks([t1, t2, t3], db=mock_db)
     
@@ -187,14 +187,14 @@ def test_project_milestone_explanation_text():
     mock_db = MockDB()
     
     # Test 1 day milestone
-    t1 = _mk_task("Task due in 1 day", status="todo", project_id="project_urgentproject")
+    t1 = _mk_task("Task due in 1 day", status="today", project_id="project_urgentproject")
     ranked = prioritize_tasks([t1], db=mock_db)
     # Check that project name is in explanation (case may vary, timing may vary by seconds)
     assert "urgentproject" in ranked[0].why.lower()
     assert "milestone in" in ranked[0].why
     
     # Test multiple days milestone  
-    t2 = _mk_task("Task due in 6 days", status="todo", project_id="project_regularproject")
+    t2 = _mk_task("Task due in 6 days", status="today", project_id="project_regularproject")
     ranked = prioritize_tasks([t2], db=mock_db)
     assert "regularproject" in ranked[0].why.lower()  
     assert "milestone in" in ranked[0].why

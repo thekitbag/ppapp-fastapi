@@ -15,7 +15,7 @@ class _Goal(SimpleNamespace):
 class _TaskGoal(SimpleNamespace):
     pass
 
-def _mk_task(title, status="inbox", tags=None, hard_due_at=None, soft_due_at=None, sort_order=0, created_at=None, project_id=None):
+def _mk_task(title, status="backlog", tags=None, hard_due_at=None, soft_due_at=None, sort_order=0, created_at=None, project_id=None):
     return _Task(
         id=title,
         title=title,
@@ -41,8 +41,8 @@ def test_goal_linked_factor():
     """Test that tasks linked to goals get a boost in priority."""
     
     # Create tasks
-    t1 = _mk_task("Task without goal", status="todo", sort_order=0)
-    t2 = _mk_task("Task with goal", status="todo", sort_order=0)
+    t1 = _mk_task("Task without goal", status="today", sort_order=0)
+    t2 = _mk_task("Task with goal", status="today", sort_order=0)
     
     # Create goal
     goal = _mk_goal("Improve Product")
@@ -98,7 +98,7 @@ def test_goal_linked_explanation():
     """Test that goal linking appears in explanations."""
     
     # Create task
-    t1 = _mk_task("Important task", status="todo")
+    t1 = _mk_task("Important task", status="today")
     
     # Create goals
     goal1 = _mk_goal("Marketing Campaign")
