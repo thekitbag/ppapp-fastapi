@@ -2,6 +2,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional, Literal
 from datetime import datetime, timezone
 
+FIBONACCI_SIZES = {1, 2, 3, 5, 8, 13, 21}
+
 Status = Literal["backlog","week", "today", "doing","done", "waiting", "archived"]
 GoalType = Literal["annual", "quarterly", "weekly"]
 GoalStatus = Literal["on_target", "at_risk", "off_target"]
@@ -121,13 +123,20 @@ class Goal(GoalOut):
 class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
-    size: Optional[Literal["xs","s","m","l","xl"]] = None
+    size: Optional[int] = None
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
     project_id: Optional[str] = None
     goal_id: Optional[str] = None
+
+    @field_validator("size")
+    @classmethod
+    def size_must_be_fibonacci(cls, v):
+        if v is not None and v not in FIBONACCI_SIZES:
+            raise ValueError(f"size must be a Fibonacci number: {sorted(FIBONACCI_SIZES)}")
+        return v
 
 class TaskCreate(TaskBase):
     tags: List[str] = Field(default_factory=list)
@@ -143,13 +152,20 @@ class TaskUpdate(BaseModel):
     status: Optional[Status] = None
     sort_order: Optional[float] = None
     tags: Optional[List[str]] = None
-    size: Optional[Literal["xs","s","m","l","xl"]] = None
+    size: Optional[int] = None
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
     project_id: Optional[str] = None
     goal_id: Optional[str] = None  # DEPRECATED: Use task-goal linking API instead
+
+    @field_validator("size")
+    @classmethod
+    def size_must_be_fibonacci(cls, v):
+        if v is not None and v not in FIBONACCI_SIZES:
+            raise ValueError(f"size must be a Fibonacci number: {sorted(FIBONACCI_SIZES)}")
+        return v
 
     @field_validator("hard_due_at")
     @classmethod
@@ -184,7 +200,7 @@ class TaskOut(BaseModel):
     status: Status
     sort_order: float
     tags: List[str] = Field(default_factory=list)
-    size: Optional[Literal["xs","s","m","l","xl"]] = None
+    size: Optional[int] = None
     effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None

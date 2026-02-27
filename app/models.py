@@ -26,13 +26,6 @@ class StatusEnum(str, enum.Enum):
     archived = "archived"
 
 
-class SizeEnum(str, enum.Enum):
-    xs = "xs"
-    s = "s"
-    m = "m"
-    l = "l"
-    xl = "xl"
-
 
 class EnergyEnum(str, enum.Enum):
     low = "low"
@@ -94,7 +87,7 @@ class Task(Base):
     
     # Status and workflow
     status = Column(Enum(StatusEnum), default=StatusEnum.week, nullable=False)
-    size = Column(Enum(SizeEnum), nullable=True)
+    size = Column(Integer, nullable=True)
     effort_minutes = Column(Integer, nullable=True)
     
     # Due dates

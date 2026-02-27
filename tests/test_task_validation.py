@@ -95,7 +95,7 @@ class TestTaskUpdateValidation:
             status="doing",
             sort_order=1.5,
             tags=["tag1", "tag2"],
-            size="m",
+            size=3,
             effort_minutes=60,
             hard_due_at=future_date,
             soft_due_at=future_date - timedelta(minutes=30),
@@ -109,7 +109,7 @@ class TestTaskUpdateValidation:
         assert task_update.status == "doing"
         assert task_update.sort_order == 1.5
         assert task_update.tags == ["tag1", "tag2"]
-        assert task_update.size == "m"
+        assert task_update.size == 3
         assert task_update.effort_minutes == 60
         assert task_update.hard_due_at == future_date
         assert task_update.soft_due_at == future_date - timedelta(minutes=30)
