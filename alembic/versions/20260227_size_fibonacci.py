@@ -22,13 +22,21 @@ def upgrade():
             existing_nullable=True,
             postgresql_using='NULL',
         )
-    # Drop the now-unused enum type (PostgreSQL only; no-op on SQLite)
-    op.execute("DROP TYPE IF EXISTS sizeenum")
+    # Drop the now-unused enum type (PostgreSQL only)
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        op.execute("DROP TYPE IF EXISTS sizeenum")
 
 
 def downgrade():
-    # Recreate the enum type and restore the column
-    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sizeenum') THEN CREATE TYPE sizeenum AS ENUM ('xs', 's', 'm', 'l', 'xl'); END IF; END $$;")
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        op.execute(
+            "DO $$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sizeenum') "
+            "THEN CREATE TYPE sizeenum AS ENUM ('xs', 's', 'm', 'l', 'xl'); "
+            "END IF; END $$;"
+        )
     with op.batch_alter_table('tasks') as batch:
         batch.alter_column(
             'size',
