@@ -123,23 +123,37 @@ class ReportingService(BaseService):
                 groups=[GoalGroupEntry(goal_id=None, goal_title="No Goal", total_size=0, is_no_goal=True)],
             )
 
-        # 3. Fetch all task-goal links for these tasks in one query
+        # 3. Build task_id → set(goal_id) from both link sources
         task_ids = [t.id for t in tasks]
-        links = (
+
+        # Source A: TaskGoal rows — filter only by task ownership, NOT TaskGoal.user_id,
+        # so that older rows with user_id=NULL are not silently dropped.
+        tg_links = (
             self.db.query(TaskGoal.task_id, TaskGoal.goal_id)
-            .filter(TaskGoal.task_id.in_(task_ids), TaskGoal.user_id == user_id)
+            .filter(TaskGoal.task_id.in_(task_ids))
             .all()
         )
+        task_goal_ids: dict = {}
+        for tid, gid in tg_links:
+            task_goal_ids.setdefault(tid, set()).add(gid)
 
-        # Build map: task_id → list[root_id]
+        # Source B: legacy Task.goal_id field
+        for task in tasks:
+            if task.goal_id:
+                task_goal_ids.setdefault(task.id, set()).add(task.goal_id)
+
+        # Resolve goal_ids to roots; skip goals not owned by this user (isolation guard)
         task_roots: dict = {}
-        for task_id, goal_id in links:
-            root = _find_root(goal_id)
-            task_roots.setdefault(task_id, []).append(root)
+        for tid, goal_ids in task_goal_ids.items():
+            for gid in goal_ids:
+                if gid not in parent_map:
+                    # Goal not in this user's goal set — discard to prevent leakage
+                    continue
+                root = _find_root(gid)
+                task_roots.setdefault(tid, []).append(root)
 
         # 4. Accumulate sizes: each task assigned to one bucket (min root_id, deterministic)
         bucket_sizes: dict = {}   # root_id (or None) → total size
-        task_size_map = {t.id: t.size for t in tasks}
 
         for task in tasks:
             roots = task_roots.get(task.id)
