@@ -44,7 +44,22 @@ BASE_URL=http://127.0.0.1:8001 make seed
 
 # run tests using the venv interpreter
 make test
+```
 
+## Reporting API
+
+Implemented reporting endpoints:
+
+- `GET /api/v1/reports/goals/{goal_id}`
+  - Optional query params: `start_date`, `end_date`
+  - Returns direct + descendant completed-size totals for the goal tree.
+- `GET /api/v1/reports/summary`
+  - Required query params: `start_date`, `end_date`
+  - Returns grouped period totals by root goal plus a `No Goal` bucket and `impact_score`.
+
+## Recommendation Logic Docs
+
+- See `docs/recommendations-logic.md` for current recommendation scoring rules, query params, and known constraints.
 
 ## Testing
 
