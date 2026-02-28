@@ -178,19 +178,21 @@ def test_create_task_with_duplicate_goals():
 
 
 def test_create_task_with_invalid_goal_type():
-    """Test creating a task with non-weekly goal should fail."""
+    """Test creating a task with non-weekly goal now succeeds (restriction removed)."""
     # Create an annual goal (not weekly)
     annual_goal = client.post("/api/v1/goals", json={"title": "Annual Goal", "type": "annual"}).json()
 
-    # Try to create task linked to annual goal
+    # Create task linked to annual goal - should succeed now
     task_response = client.post("/api/v1/tasks", json={
-        "title": "Invalid Goal Type Task",
+        "title": "Annual Goal Type Task",
         "goals": [annual_goal["id"]]
     })
 
-    assert task_response.status_code == 400
-    error = task_response.json()
-    assert "Only weekly goals can have tasks linked" in error["error"]["message"]
+    assert task_response.status_code == 201
+    task = task_response.json()
+    assert task["title"] == "Annual Goal Type Task"
+    assert len(task["goals"]) == 1
+    assert task["goals"][0]["id"] == annual_goal["id"]
 
 
 def test_create_task_with_nonexistent_goal():
@@ -265,7 +267,7 @@ def test_create_task_with_client_request_id_and_goals():
 
 
 def test_create_task_quarterly_goal_fails():
-    """Test that linking to quarterly goal fails with appropriate error."""
+    """Test that linking to quarterly goal now succeeds (restriction removed)."""
     # Create quarterly goal
     annual_goal = client.post("/api/v1/goals", json={"title": "Annual Goal", "type": "annual"}).json()
     quarterly_goal = client.post("/api/v1/goals", json={
@@ -274,13 +276,14 @@ def test_create_task_quarterly_goal_fails():
         "parent_goal_id": annual_goal["id"]
     }).json()
 
-    # Try to create task linked to quarterly goal
+    # Create task linked to quarterly goal - should succeed now
     task_response = client.post("/api/v1/tasks", json={
         "title": "Quarterly Goal Task",
         "goals": [quarterly_goal["id"]]
     })
 
-    assert task_response.status_code == 400
-    error = task_response.json()
-    assert "Only weekly goals can have tasks linked" in error["error"]["message"]
-    assert "quarterly" in error["error"]["message"]
+    assert task_response.status_code == 201
+    task = task_response.json()
+    assert task["title"] == "Quarterly Goal Task"
+    assert len(task["goals"]) == 1
+    assert task["goals"][0]["id"] == quarterly_goal["id"]

@@ -23,7 +23,6 @@ def _mk_task(title, status="backlog", tags=None, hard_due_at=None, soft_due_at=N
         sort_order=sort_order,
         created_at=created_at or datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
-        effort_minutes=None,
         project_id=project_id,
     )
 

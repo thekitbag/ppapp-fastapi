@@ -88,8 +88,8 @@ class Task(Base):
     # Status and workflow
     status = Column(Enum(StatusEnum), default=StatusEnum.week, nullable=False)
     size = Column(Integer, nullable=True)
-    effort_minutes = Column(Integer, nullable=True)
-    
+    completed_at = Column(DateTime, nullable=True)
+
     # Due dates
     hard_due_at = Column(DateTime, nullable=True)
     soft_due_at = Column(DateTime, nullable=True)

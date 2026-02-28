@@ -191,7 +191,7 @@ class GoalService(BaseService):
                 status=task.status.value,
                 sort_order=task.sort_order,
                 tags=[tag.name for tag in task.tags],
-                effort_minutes=task.effort_minutes,
+                completed_at=task.completed_at,
                 hard_due_at=task.hard_due_at,
                 soft_due_at=task.soft_due_at,
                 project_id=task.project_id,
@@ -297,21 +297,17 @@ class GoalService(BaseService):
             raise
     
     def link_tasks_to_goal(self, goal_id: str, user_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
-        """Link tasks to a goal. Only weekly goals can have linked tasks."""
+        """Link tasks to a goal."""
         from app.models import Task, TaskGoal
         import uuid
-        
+
         try:
             self.logger.info(f"Linking {len(link_data.task_ids)} tasks to goal: {goal_id}")
-            
-            # Verify goal exists and is weekly
+
+            # Verify goal exists
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
                 raise NotFoundError("Goal", goal_id)
-            
-            # Goals v2: Only weekly goals can have tasks
-            if goal.type and goal.type.value != "weekly":
-                raise ValidationError("Only weekly goals can have tasks linked to them. Annual and quarterly goals should link to their child goals instead.")
             
             # Verify tasks exist and belong to user
             tasks = self.db.query(Task).filter(Task.id.in_(link_data.task_ids), Task.user_id == user_id).all()

@@ -124,7 +124,6 @@ class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
     size: Optional[int] = None
-    effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
@@ -153,7 +152,6 @@ class TaskUpdate(BaseModel):
     sort_order: Optional[float] = None
     tags: Optional[List[str]] = None
     size: Optional[int] = None
-    effort_minutes: Optional[int] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None
@@ -201,7 +199,7 @@ class TaskOut(BaseModel):
     sort_order: float
     tags: List[str] = Field(default_factory=list)
     size: Optional[int] = None
-    effort_minutes: Optional[int] = None
+    completed_at: Optional[datetime] = None
     hard_due_at: Optional[datetime] = None
     soft_due_at: Optional[datetime] = None
     energy: Optional[Literal["low","medium","high","energized","neutral","tired"]] = None

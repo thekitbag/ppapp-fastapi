@@ -25,5 +25,5 @@ migrate:
 seed:
 	bash scripts/seed.sh
 
-test:
+test: migrate
 	PYTHONPATH=$(PWD) $(PYTEST) --disable-warnings --maxfail=1

@@ -18,9 +18,16 @@ async def lifespan(app: FastAPI):
     # Startup
     setup_logging()
     logger.info("Starting up Personal Productivity API")
-    
+
+    if not is_test_mode():
+        from alembic.config import Config
+        from alembic import command as alembic_command
+        alembic_cfg = Config("alembic.ini")
+        alembic_command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations applied")
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Personal Productivity API")
 

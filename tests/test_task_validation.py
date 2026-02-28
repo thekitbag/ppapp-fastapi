@@ -78,7 +78,6 @@ class TestTaskUpdateValidation:
         assert task_update.sort_order is None
         assert task_update.tags is None
         assert task_update.size is None
-        assert task_update.effort_minutes is None
         assert task_update.hard_due_at is None
         assert task_update.soft_due_at is None
         assert task_update.energy is None
@@ -96,21 +95,19 @@ class TestTaskUpdateValidation:
             sort_order=1.5,
             tags=["tag1", "tag2"],
             size=3,
-            effort_minutes=60,
             hard_due_at=future_date,
             soft_due_at=future_date - timedelta(minutes=30),
             energy="high",
             project_id="proj-123",
             goal_id="goal-456"
         )
-        
+
         assert task_update.title == "Updated task"
         assert task_update.description == "Updated description"
         assert task_update.status == "doing"
         assert task_update.sort_order == 1.5
         assert task_update.tags == ["tag1", "tag2"]
         assert task_update.size == 3
-        assert task_update.effort_minutes == 60
         assert task_update.hard_due_at == future_date
         assert task_update.soft_due_at == future_date - timedelta(minutes=30)
         assert task_update.energy == "high"

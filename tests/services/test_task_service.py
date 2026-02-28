@@ -208,3 +208,16 @@ class TestTaskService:
         # Verify the existing task was updated
         task = task_service.get_task(created_task.id, test_user.id)
         assert task.status == "week"
+
+    def test_done_transition_sets_completed_at(self, task_service, sample_task_data, test_user):
+        """Test that transitioning to 'done' sets completed_at."""
+        task, _ = task_service.create_task(TaskCreate(**sample_task_data), test_user.id)
+        result = task_service.update_task(task.id, test_user.id, {"status": "done"})
+        assert result.completed_at is not None
+
+    def test_non_done_transition_clears_completed_at(self, task_service, sample_task_data, test_user):
+        """Test that transitioning away from 'done' clears completed_at."""
+        task, _ = task_service.create_task(TaskCreate(**sample_task_data), test_user.id)
+        task_service.update_task(task.id, test_user.id, {"status": "done"})
+        result = task_service.update_task(task.id, test_user.id, {"status": "week"})
+        assert result.completed_at is None

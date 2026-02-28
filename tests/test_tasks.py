@@ -404,7 +404,6 @@ def test_create_task_idempotency_with_complex_payload():
         "status": "week",
         "tags": ["complex", "test"],
         "size": 3,
-        "effort_minutes": 60,
         "energy": "medium",
         "project_id": project_id,
         "client_request_id": client_request_id
@@ -419,7 +418,6 @@ def test_create_task_idempotency_with_complex_payload():
         "status": "week",
         "tags": ["complex", "test"],
         "size": 3,
-        "effort_minutes": 60,
         "energy": "medium",
         "project_id": project_id,
         "client_request_id": client_request_id

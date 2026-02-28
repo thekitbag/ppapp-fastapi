@@ -30,7 +30,6 @@ class TestTaskUpdateAPI:
             "description": "Updated description",
             "status": "doing",
             "size": 3,
-            "effort_minutes": 60,
             "hard_due_at": future_time,
             "soft_due_at": soft_time,
             "energy": "high",

@@ -86,7 +86,7 @@ class TaskService(BaseService):
             raise
 
     def _link_task_to_goals(self, task_id: str, user_id: str, goal_ids: List[str]):
-        """Link a task to multiple goals with validation. Only weekly goals allowed."""
+        """Link a task to multiple goals with validation."""
         from app.models import Goal, TaskGoal
         import uuid
 
@@ -101,12 +101,6 @@ class TaskService(BaseService):
             missing_goals = goals_requested - set(goals_found.keys())
             if missing_goals:
                 raise ValidationError(f"Goals not found: {list(missing_goals)}")
-
-            # Validate that all goals are weekly type
-            for goal_id in goal_ids:
-                goal = goals_found[goal_id]
-                if goal.type and goal.type.value != "weekly":
-                    raise ValidationError(f"Only weekly goals can have tasks linked to them. Goal {goal_id} is {goal.type.value}")
 
             # Check which links already exist
             existing_links = self.db.query(TaskGoal).filter(
@@ -216,14 +210,24 @@ class TaskService(BaseService):
         """Update a task for specific user."""
         try:
             self.logger.info(f"Updating task {task_id} for user {user_id}")
-            
+
             # Validate update data
             if "title" in update_data and not update_data["title"].strip():
                 raise ValidationError("Task title cannot be empty")
-            
+
+            # Inject completion timestamp on status transitions
+            if "status" in update_data:
+                if update_data["status"] == "done":
+                    update_data["completed_at"] = datetime.utcnow()
+
             task = self.task_repo.update_with_tags(task_id, user_id, update_data)
+
+            # Clear completed_at when transitioning to any non-done status
+            if "status" in update_data and update_data["status"] != "done":
+                task.completed_at = None
+
             self.commit()
-            
+
             self.logger.info(f"Task updated successfully: {task_id}")
             return self.task_repo.to_schema(task)
             
@@ -261,6 +265,10 @@ class TaskService(BaseService):
                 task = self.task_repo.get_by_user(task_id, user_id)
                 if task:
                     self.task_repo.update_with_tags(task_id, user_id, {"status": "week"})
+                    # Clear completed_at since week is not done status
+                    task_obj = self.task_repo.get_by_user(task_id, user_id)
+                    if task_obj:
+                        task_obj.completed_at = None
                     updated_ids.append(task_id)
             
             self.commit()

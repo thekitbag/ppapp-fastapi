@@ -680,56 +680,55 @@ def test_goals_v2_by_type_endpoint():
 
 
 def test_goals_v2_task_linking_weekly_only():
-    """Test Goals v2 task linking restriction (weekly goals only)."""
+    """Test Goals v2 task linking works for all goal types (restriction removed)."""
     timestamp = _timestamp()
-    
+
     # Create hierarchy
     annual = client.post("/api/v1/goals/", json={
         "title": f"Link Annual {timestamp}",
         "type": "annual"
     }).json()
-    
+
     quarterly = client.post("/api/v1/goals/", json={
         "title": f"Link Quarterly {timestamp}",
         "type": "quarterly",
         "parent_goal_id": annual["id"]
     }).json()
-    
+
     weekly = client.post("/api/v1/goals/", json={
         "title": f"Link Weekly {timestamp}",
         "type": "weekly",
         "parent_goal_id": quarterly["id"]
     }).json()
-    
-    # Create test task
-    task = client.post("/api/v1/tasks/", json={
-        "title": f"Link Task {timestamp}"
-    }).json()
-    
-    # Try linking to annual - should fail
+
+    # Create test tasks
+    task_annual = client.post("/api/v1/tasks/", json={"title": f"Annual Task {timestamp}"}).json()
+    task_quarterly = client.post("/api/v1/tasks/", json={"title": f"Quarterly Task {timestamp}"}).json()
+    task_weekly = client.post("/api/v1/tasks/", json={"title": f"Weekly Task {timestamp}"}).json()
+
+    # Link to annual - should now succeed
     annual_link = client.post(f"/api/v1/goals/{annual['id']}/link-tasks", json={
-        "task_ids": [task["id"]],
+        "task_ids": [task_annual["id"]],
         "goal_id": annual["id"]
     })
-    assert annual_link.status_code == 400
-    assert "Only weekly goals can have tasks" in annual_link.json()["error"]["message"]
-    
-    # Try linking to quarterly - should fail  
+    assert annual_link.status_code == 200
+    assert task_annual["id"] in annual_link.json()["linked"]
+
+    # Link to quarterly - should now succeed
     quarterly_link = client.post(f"/api/v1/goals/{quarterly['id']}/link-tasks", json={
-        "task_ids": [task["id"]],
+        "task_ids": [task_quarterly["id"]],
         "goal_id": quarterly["id"]
     })
-    assert quarterly_link.status_code == 400
-    assert "Only weekly goals can have tasks" in quarterly_link.json()["error"]["message"]
-    
+    assert quarterly_link.status_code == 200
+    assert task_quarterly["id"] in quarterly_link.json()["linked"]
+
     # Link to weekly - should succeed
     weekly_link = client.post(f"/api/v1/goals/{weekly['id']}/link-tasks", json={
-        "task_ids": [task["id"]],
+        "task_ids": [task_weekly["id"]],
         "goal_id": weekly["id"]
     })
     assert weekly_link.status_code == 200
-    result = weekly_link.json()
-    assert task["id"] in result["linked"]
+    assert task_weekly["id"] in weekly_link.json()["linked"]
 
 
 def test_goals_tree_with_path():
