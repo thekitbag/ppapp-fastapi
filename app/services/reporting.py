@@ -1,8 +1,8 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.exceptions import NotFoundError
-from app.schemas import GoalReportResponse
+from app.schemas import GoalReportResponse, GoalGroupEntry, SummaryReportResponse
 from app.models import Goal, Task, TaskGoal
 from .base import BaseService
 
@@ -74,4 +74,103 @@ class ReportingService(BaseService):
             descendant_size=descendant_size,
             start_date=start_date,
             end_date=end_date,
+        )
+
+    def summary_report(
+        self,
+        user_id: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> SummaryReportResponse:
+        # 1. Build ancestry and title maps for all user goals
+        all_goals = self.db.query(Goal).filter(Goal.user_id == user_id).all()
+        parent_map: dict = {g.id: g.parent_goal_id for g in all_goals}
+        title_map: dict = {g.id: g.title for g in all_goals}
+
+        def _find_root(goal_id: str) -> str:
+            """Walk parent chain to find root goal id."""
+            current = goal_id
+            visited: set = set()
+            while True:
+                if current in visited:
+                    # Cycle guard — treat current node as root
+                    break
+                visited.add(current)
+                parent = parent_map.get(current)
+                if not parent:
+                    break
+                current = parent
+            return current
+
+        # 2. Query qualifying tasks for the user in the date range
+        tasks = (
+            self.db.query(Task)
+            .filter(
+                Task.user_id == user_id,
+                Task.completed_at.isnot(None),
+                Task.size.isnot(None),
+                Task.completed_at >= start_date,
+                Task.completed_at <= end_date,
+            )
+            .all()
+        )
+
+        if not tasks:
+            return SummaryReportResponse(
+                start_date=start_date,
+                end_date=end_date,
+                impact_score=0,
+                groups=[GoalGroupEntry(goal_id=None, goal_title="No Goal", total_size=0, is_no_goal=True)],
+            )
+
+        # 3. Fetch all task-goal links for these tasks in one query
+        task_ids = [t.id for t in tasks]
+        links = (
+            self.db.query(TaskGoal.task_id, TaskGoal.goal_id)
+            .filter(TaskGoal.task_id.in_(task_ids), TaskGoal.user_id == user_id)
+            .all()
+        )
+
+        # Build map: task_id → list[root_id]
+        task_roots: dict = {}
+        for task_id, goal_id in links:
+            root = _find_root(goal_id)
+            task_roots.setdefault(task_id, []).append(root)
+
+        # 4. Accumulate sizes: each task assigned to one bucket (min root_id, deterministic)
+        bucket_sizes: dict = {}   # root_id (or None) → total size
+        task_size_map = {t.id: t.size for t in tasks}
+
+        for task in tasks:
+            roots = task_roots.get(task.id)
+            if roots:
+                chosen_root = min(roots)   # deterministic: lexicographically smallest root
+            else:
+                chosen_root = None         # no-goal bucket
+            bucket_sizes[chosen_root] = bucket_sizes.get(chosen_root, 0) + task.size
+
+        # 5. Build groups — sort root goals by title, no-goal last
+        groups: List[GoalGroupEntry] = []
+        for root_id, total in sorted(
+            ((k, v) for k, v in bucket_sizes.items() if k is not None),
+            key=lambda kv: title_map.get(kv[0], ""),
+        ):
+            groups.append(GoalGroupEntry(
+                goal_id=root_id,
+                goal_title=title_map.get(root_id, root_id),
+                total_size=total,
+                is_no_goal=False,
+            ))
+
+        # Always include No Goal entry
+        no_goal_size = bucket_sizes.get(None, 0)
+        groups.append(GoalGroupEntry(goal_id=None, goal_title="No Goal", total_size=no_goal_size, is_no_goal=True))
+
+        impact_score = sum(t.size for t in tasks if t.size is not None)
+
+        return SummaryReportResponse(
+            start_date=start_date,
+            end_date=end_date,
+            impact_score=impact_score,
+            groups=groups,
         )

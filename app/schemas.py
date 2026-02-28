@@ -227,3 +227,17 @@ class GoalReportResponse(BaseModel):
     descendant_size: int
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+
+
+class GoalGroupEntry(BaseModel):
+    goal_id: Optional[str]
+    goal_title: str
+    total_size: int
+    is_no_goal: bool
+
+
+class SummaryReportResponse(BaseModel):
+    start_date: datetime
+    end_date: datetime
+    impact_score: int
+    groups: List[GoalGroupEntry]
