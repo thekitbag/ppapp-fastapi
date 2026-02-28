@@ -40,11 +40,11 @@ def test_prioritize_tasks_simple_formula():
     t2 = _mk_task("B today due soon goal", status="today", tags=["goal"], hard_due_at=now + timedelta(hours=2), sort_order=500)
     t3 = _mk_task("C today no due", status="today", sort_order=10)
     ranked = prioritize_tasks([t1, t2, t3])
-    # B has +10 (today) +5 (due soon) +2 (goal) + 0 (no project) = 17 out of possible 17.12 -> ~99%
-    # C has +10 (today) = 10 out of 17.12 -> ~58%
-    # A has 0 -> 0
+    # B has status_boost+due_proximity+goal_align — highest combination
+    # C has status_boost only
+    # A has nothing
     assert ranked[0].task.title == "B today due soon goal"
-    assert ranked[0].score > 98  # Should be around 99%
+    assert ranked[0].score > ranked[1].score > ranked[2].score
     assert ranked[0].factors["due_proximity"] == 1
     assert ranked[0].factors["goal_align"] == 1
     assert ranked[0].factors["status_boost"] == 1

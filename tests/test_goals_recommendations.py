@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.services.recommendations import prioritize_tasks, _calculate_project_due_proximity
 from types import SimpleNamespace
 import math
@@ -29,11 +29,13 @@ def _mk_task(title, status="backlog", tags=None, hard_due_at=None, soft_due_at=N
         project_id=project_id,
     )
 
-def _mk_goal(title, description=None):
+def _mk_goal(title, description=None, status=None, end_date=None):
     return _Goal(
-        id=f"goal_{title.lower().replace(' ', '_')}",  # Replace spaces with underscores
+        id=f"goal_{title.lower().replace(' ', '_')}",
         title=title,
         description=description,
+        status=SimpleNamespace(value=status) if status else None,
+        end_date=end_date,
     )
 
 def test_goal_linked_factor():
@@ -185,7 +187,156 @@ def test_goal_linked_weight():
     assert goal_task.factors["goal_linked"] == 1.0
     assert no_goal_task.factors["goal_linked"] == 0.0
     
-    # Score difference should be approximately the goal_linked weight (0.10) 
-    # as a percentage of max possible score
-    expected_boost = (0.10 / sum([10, 5, 2, 0.12, 0.10])) * 100  # ~0.58%
+    # Score difference = goal_linked weight / max_raw * 100
+    # SUGGEST-002 default weights (no energy/time_window active):
+    # 10+5+2+0.12+0.10+10+15+10 = 52.22 → goal_linked boost ≈ 0.19%
+    default_weights_sum = sum([10, 5, 2, 0.12, 0.10, 0, 0, 10, 15, 10])
+    expected_boost = (0.10 / default_weights_sum) * 100
     assert abs((goal_task.score - no_goal_task.score) - expected_boost) < 0.1
+
+
+# ---------------------------------------------------------------------------
+# SUGGEST-002: goal health status and urgency scoring
+# ---------------------------------------------------------------------------
+
+def _build_mock_db(task_goal_links, goals):
+    """Build a minimal mock DB for goal health tests."""
+    goals_by_id = {g.id: g for g in goals}
+
+    class _Link:
+        def __init__(self, task_id, goal_id):
+            self.task_id = task_id
+            self.goal_id = goal_id
+
+    links = [_Link(tid, gid) for tid, gid in task_goal_links]
+
+    class _MockDB:
+        def __init__(self):
+            self._model = None
+
+        def query(self, model):
+            self._model = model
+            return self
+
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            model_str = str(self._model) if self._model else ""
+            if "TaskGoal" in model_str:
+                return links
+            if "Goal" in model_str and "TaskGoal" not in model_str:
+                return list(goals_by_id.values())
+            return []
+
+        def in_(self, ids):
+            return self
+
+    return _MockDB()
+
+
+def test_off_target_goal_boosts_score():
+    """Task linked to off_target goal receives goal_status_off_target boost."""
+    t = _mk_task("Linked task", status="backlog")
+    goal = _mk_goal("Off Goal", status="off_target")
+    db = _build_mock_db([(t.id, goal.id)], [goal])
+
+    ranked = prioritize_tasks([t], db=db)
+
+    assert ranked[0].factors["goal_status_off_target"] == 1.0
+    assert ranked[0].factors["goal_status_at_risk"] == 0.0
+    assert ranked[0].score > 0
+
+
+def test_at_risk_goal_boosts_score():
+    """Task linked to at_risk goal receives goal_status_at_risk boost only."""
+    t = _mk_task("Linked task", status="backlog")
+    goal = _mk_goal("Risk Goal", status="at_risk")
+    db = _build_mock_db([(t.id, goal.id)], [goal])
+
+    ranked = prioritize_tasks([t], db=db)
+
+    assert ranked[0].factors["goal_status_at_risk"] == 1.0
+    assert ranked[0].factors["goal_status_off_target"] == 0.0
+
+
+def test_off_target_outranks_at_risk():
+    """Task linked to off_target goal scores higher than task linked to at_risk goal."""
+    t_off = _mk_task("Off target task", status="backlog", sort_order=0)
+    t_risk = _mk_task("At risk task", status="backlog", sort_order=0)
+    goal_off = _mk_goal("Off Target", status="off_target")
+    goal_risk = _mk_goal("At Risk", status="at_risk")
+
+    db = _build_mock_db(
+        [(t_off.id, goal_off.id), (t_risk.id, goal_risk.id)],
+        [goal_off, goal_risk],
+    )
+
+    ranked = prioritize_tasks([t_risk, t_off], db=db)
+    assert ranked[0].task.id == t_off.id
+
+
+def test_goal_urgency_near_end_date():
+    """Task with goal expiring soon gets non-zero goal_urgency factor."""
+    now = datetime.now(timezone.utc)
+    t = _mk_task("Urgent task", status="backlog")
+    goal = _mk_goal("Near Goal", end_date=now + timedelta(days=3))
+    db = _build_mock_db([(t.id, goal.id)], [goal])
+
+    ranked = prioritize_tasks([t], db=db)
+
+    assert ranked[0].factors["goal_urgency"] > 0.5
+
+
+def test_goal_urgency_why_text():
+    """why text mentions 'goal due' when urgency > 0.5."""
+    now = datetime.now(timezone.utc)
+    t = _mk_task("Urgent task", status="backlog")
+    goal = _mk_goal("Near Goal", end_date=now + timedelta(days=2))
+    db = _build_mock_db([(t.id, goal.id)], [goal])
+
+    ranked = prioritize_tasks([t], db=db)
+
+    assert "goal due" in ranked[0].why.lower()
+
+
+def test_no_n_plus_1_goal_fetches():
+    """Goal objects are fetched in a single batch query, not per task."""
+    t1 = _mk_task("Task A", status="backlog")
+    t2 = _mk_task("Task B", status="backlog")
+    goal = _mk_goal("Shared Goal", status="at_risk")
+
+    query_count = {"n": 0}
+
+    class _CountingDB:
+        def __init__(self):
+            self._model = None
+
+        def query(self, model):
+            self._model = model
+            query_count["n"] += 1
+            return self
+
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            model_str = str(self._model) if self._model else ""
+            if "TaskGoal" in model_str:
+                return [
+                    SimpleNamespace(task_id=t1.id, goal_id=goal.id, user_id=None),
+                    SimpleNamespace(task_id=t2.id, goal_id=goal.id, user_id=None),
+                ]
+            if "Goal" in model_str and "TaskGoal" not in model_str:
+                return [goal]
+            return []
+
+        def in_(self, ids):
+            return self
+
+    db = _CountingDB()
+    prioritize_tasks([t1, t2], db=db)
+
+    # Should be at most 3 batched queries: projects, task_goals, goals
+    # (not one per task or one per goal link)
+    assert query_count["n"] <= 3
