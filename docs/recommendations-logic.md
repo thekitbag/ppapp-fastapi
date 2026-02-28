@@ -160,6 +160,74 @@ All lookups are user-scoped via `user_id` filtering.
 
 ---
 
+## Engine Architecture (SUGGEST-003)
+
+### Overview
+
+Recommendation logic is encapsulated behind a `RecommendationEngine` abstract base
+class (`app/services/recommendation_engine.py`). This decouples the API layer from
+the ranking implementation and makes it straightforward to swap in an LLM-based
+strategy in the future.
+
+### Canonical Request Context
+
+Both engines receive a single `RecommendationContext` dataclass:
+
+```python
+@dataclass
+class RecommendationContext:
+    tasks: List[Task]      # user-scoped candidate tasks (pre-filtered)
+    db: Session            # live DB session for batch lookups
+    energy: Optional[str]  # user energy param (low|medium|high)
+    time_window: Optional[int]  # available minutes
+    limit: int             # max results to return
+```
+
+### Engines
+
+| Engine | Class | `NAME` | Behaviour |
+|---|---|---|---|
+| Algorithmic | `AlgorithmicRecommendationEngine` | `"algorithmic"` | Deterministic weighted-factor scorer (SUGGEST-002 model) |
+| LLM placeholder | `LLMRecommendationEngine` | `"llm_placeholder"` | Passes through algorithmic ranking; post-processes `why` text to narrative form. No external API called. |
+
+### Strategy Selection
+
+```
+USE_LLM_PRIORITIZATION=false  →  AlgorithmicRecommendationEngine  (default)
+USE_LLM_PRIORITIZATION=true   →  LLMRecommendationEngine
+```
+
+The factory `get_recommendation_engine(use_llm: bool)` is called once per request
+via a FastAPI `Depends(_get_engine)` dependency. No branching exists in endpoint code.
+
+### Structured Logging
+
+Each engine emits at `INFO` and `DEBUG` level:
+
+```
+INFO  engine=algorithmic candidates=12 returned=5 energy=low time_window=30
+DEBUG task_id=<uuid> score=72.30 why="Matches your low energy level..."
+```
+
+Logs contain task IDs and scores only — no task titles, user emails, or other PII.
+
+### LLM Narrative Why Text
+
+`LLMRecommendationEngine` post-processes terse factor text via `_to_narrative()`:
+
+- `"Due soon and linked goal is off target"` → `"Recommended because due soon and linked goal is off target."`
+- `"No strong signals (baseline order)"` → `"This task has been waiting — it might be a good time to make progress on it."`
+
+### Extending for Real LLM Integration
+
+To wire a real LLM provider in a future ticket:
+1. Override `LLMRecommendationEngine.recommend()` to call the provider API.
+2. Pass `RecommendationContext` fields as prompt context.
+3. Map the LLM response back to `List[Ranked]`.
+4. No controller or schema changes required.
+
+---
+
 ## Known Constraints / Decisions
 
 - `window` query parameter is deprecated and currently not used by ranking logic.

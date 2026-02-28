@@ -7,7 +7,9 @@ from app.db import get_db
 from app import models, schemas
 from app.api.v1.auth import get_current_user_dep
 from app.repositories import TaskRepository
-from app.services.recommendations import prioritize_tasks, suggest_week
+from app.services.recommendations import suggest_week
+from app.services.recommendation_engine import RecommendationContext, get_recommendation_engine
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -28,38 +30,50 @@ def _parse_next_query(
     return schemas.NextRecommendationQuery(energy=energy, time_window=time_window, limit=limit, window=window)
 
 
+def _get_engine():
+    """Dependency: return the active recommendation engine based on config."""
+    return get_recommendation_engine(settings.use_llm_prioritization)
+
+
 @router.get("/next", response_model=schemas.RecommendationResponse)
 def next_recommendations(
     query: schemas.NextRecommendationQuery = Depends(_parse_next_query),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     db: Session = Depends(get_db),
+    engine=Depends(_get_engine),
 ):
     """Get next task recommendations with optional energy and time_window filtering."""
     user_id = current_user["user_id"]
-    # Fetch candidate tasks
     tasks: List[models.Task] = (
         db.query(models.Task)
         .filter(models.Task.user_id == user_id)
-        .filter(models.Task.status.in_(['backlog','doing','today', 'week']))
+        .filter(models.Task.status.in_(['backlog', 'doing', 'today', 'week']))
         .all()
     )
-    ranked = prioritize_tasks(tasks, db=db, energy=query.energy, time_window=query.time_window)
+
+    ctx = RecommendationContext(
+        tasks=tasks,
+        db=db,
+        energy=query.energy,
+        time_window=query.time_window,
+        limit=query.limit,
+    )
+    ranked = engine.recommend(ctx)
 
     task_repo = TaskRepository(db)
     task_out_by_id = {
         task.id: task_out for task, task_out in zip(tasks, task_repo.to_schema_batch(tasks))
     }
 
-    items: List[schemas.RecommendationItem] = []
-    for r in ranked[: max(1, query.limit)]:  # always at least 1 if any task exists
-        items.append(
-            schemas.RecommendationItem(
-                task=task_out_by_id[r.task.id],
-                score=r.score,
-                factors=r.factors,
-                why=r.why,
-            )
+    items: List[schemas.RecommendationItem] = [
+        schemas.RecommendationItem(
+            task=task_out_by_id[r.task.id],
+            score=r.score,
+            factors=r.factors,
+            why=r.why,
         )
+        for r in ranked
+    ]
 
     return schemas.RecommendationResponse(items=items)
 

@@ -43,6 +43,9 @@ class Settings(BaseModel):
     allowlist_emails: Optional[str] = None
     app_base_url: str = "http://localhost:3000"
     
+    # Recommendations
+    use_llm_prioritization: bool = False
+
     # Development settings
     dev_login_enabled: bool = False
     auth_dev_enabled: bool = False
@@ -101,6 +104,7 @@ class Settings(BaseModel):
             jwt_secret=os.getenv("JWT_SECRET"),
             allowlist_emails=os.getenv("ALLOWLIST_EMAILS"),
             app_base_url=os.getenv("APP_BASE_URL", "http://localhost:3000"),
+            use_llm_prioritization=os.getenv("USE_LLM_PRIORITIZATION", "false").lower() == "true",
             dev_login_enabled=os.getenv("DEV_LOGIN_ENABLED", "false").lower() == "true",
             auth_dev_enabled=os.getenv("AUTH_DEV_ENABLED", "false").lower() == "true",
             dev_login_allowed_emails=os.getenv("DEV_LOGIN_ALLOWED_EMAILS"),
