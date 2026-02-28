@@ -31,6 +31,34 @@ def test_recommendations_returns_why():
     assert "why" in top and isinstance(top["why"], str) and len(top["why"]) > 0
 
 
+def test_valid_energy_and_time_window_returns_200():
+    """Valid energy + time_window params return 200 with expected shape."""
+    r = client.get("/api/v1/recommendations/next?energy=low&time_window=30&limit=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert "items" in body
+    assert isinstance(body["items"], list)
+
+
+def test_invalid_time_window_returns_422():
+    """Non-allowed time_window value returns 422."""
+    r = client.get("/api/v1/recommendations/next?time_window=45")
+    assert r.status_code == 422
+
+
+def test_invalid_energy_returns_422():
+    """Non-allowed energy value returns 422."""
+    r = client.get("/api/v1/recommendations/next?energy=super")
+    assert r.status_code == 422
+
+
+def test_deprecated_window_param_still_works():
+    """Existing clients using the legacy `window` param continue to get 200."""
+    r = client.get("/api/v1/recommendations/next?window=60")
+    assert r.status_code == 200
+    assert "items" in r.json()
+
+
 def test_recommendations_are_tenant_scoped():
     # Create one task for each test user
     r1 = client.post("/api/v1/tasks", json={"title": "User A task"}, headers={"x-test-user-id": "user_test"})

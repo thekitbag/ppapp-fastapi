@@ -219,6 +219,13 @@ class RecommendationResponse(BaseModel):
     items: List[RecommendationItem]
 
 
+class NextRecommendationQuery(BaseModel):
+    energy: Optional[str] = None  # validated values: low | medium | high
+    time_window: Optional[int] = None  # validated values: 15 | 30 | 60 | 120 | 240
+    limit: int = 5
+    window: int = 30  # deprecated: kept for backward compatibility
+
+
 class GoalReportResponse(BaseModel):
     goal_id: str
     goal_title: str

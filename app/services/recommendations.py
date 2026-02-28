@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import math
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,10 @@ def _max_raw(weights: dict) -> int:
     return sum(weights.values())
 
 
+_ENERGY_LEVELS = {"low", "medium", "high"}
+_TIME_WINDOW_SIZE_THRESHOLD: Dict[int, int] = {15: 1, 30: 2, 60: 3, 120: 5, 240: 8}
+
+
 @dataclass
 class Factor:
     status_boost: int = 0
@@ -27,6 +31,8 @@ class Factor:
     goal_align: int = 0
     project_due_proximity: float = 0.0
     goal_linked: int = 0
+    energy_fit: int = 0
+    size_fit: int = 0
 
 @dataclass
 class Ranked:
@@ -139,9 +145,22 @@ def prioritize_tasks(
     *,
     due_within_hours: int = 24,
     weights: Dict[str, float] = None,
+    energy: Optional[str] = None,
+    time_window: Optional[int] = None,
 ) -> List[Ranked]:
     if weights is None:
-        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12, 'goal_linked': 0.10}
+        weights = {'status_boost': 10, 'due_proximity': 5, 'goal_align': 2, 'project_due_proximity': 0.12, 'goal_linked': 0.10, 'energy_fit': 0, 'size_fit': 0}
+    else:
+        weights.setdefault('energy_fit', 0)
+        weights.setdefault('size_fit', 0)
+
+    # Energy: boost tasks whose size fits the user's current energy level
+    if energy in _ENERGY_LEVELS:
+        weights['energy_fit'] = 4
+
+    # Time window: boost tasks small enough to complete in the available window
+    if time_window is not None:
+        weights['size_fit'] = 3
     
     now = datetime.now(timezone.utc)
     ranked: List[Ranked] = []
@@ -218,13 +237,33 @@ def prioritize_tasks(
         # Goal linked factor
         if len(linked_goal_ids) > 0:
             f.goal_linked = 1
-        
+
+        # Energy fit: task size matches the user's current energy capacity
+        if energy == "low":
+            if t.size is None or t.size <= 2:
+                f.energy_fit = 1
+        elif energy == "medium":
+            if t.size is None or t.size <= 5:
+                f.energy_fit = 1
+        elif energy == "high":
+            # High energy: prefer ambitious tasks; size=None excluded (unknown effort)
+            if t.size is not None and t.size >= 5:
+                f.energy_fit = 1
+
+        # Size fit: task size is completable within the available time window
+        if time_window is not None:
+            size_threshold = _TIME_WINDOW_SIZE_THRESHOLD.get(time_window, 999)
+            if t.size is None or t.size <= size_threshold:
+                f.size_fit = 1
+
         # Calculate weighted raw score
         raw = (weights['status_boost'] * f.status_boost) + \
               (weights['due_proximity'] * f.due_proximity) + \
               (weights['goal_align'] * f.goal_align) + \
               (weights['project_due_proximity'] * f.project_due_proximity) + \
-              (weights['goal_linked'] * f.goal_linked)
+              (weights['goal_linked'] * f.goal_linked) + \
+              (weights['energy_fit'] * f.energy_fit) + \
+              (weights['size_fit'] * f.size_fit)
         
         score = (raw / max_raw) * 100
         
@@ -239,6 +278,8 @@ def prioritize_tasks(
                     "goal_align": float(f.goal_align),
                     "project_due_proximity": f.project_due_proximity,
                     "goal_linked": float(f.goal_linked),
+                    "energy_fit": float(f.energy_fit),
+                    "size_fit": float(f.size_fit),
                 },
                 why=_why_from_factors(f, project, days_until_project_due, goal_titles),
             )

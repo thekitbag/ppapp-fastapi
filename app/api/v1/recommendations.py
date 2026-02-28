@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from app.db import get_db
 from app import models, schemas
@@ -11,16 +11,30 @@ from app.services.recommendations import prioritize_tasks, suggest_week
 
 router = APIRouter()
 
+_VALID_ENERGIES = {"low", "medium", "high"}
+_VALID_TIME_WINDOWS = {15, 30, 60, 120, 240}
+
+
+def _parse_next_query(
+    energy: Optional[str] = Query(None, description="Current energy level (low, medium, or high); influences task-size preference in ranking"),
+    time_window: Optional[int] = Query(None, description="Available time in minutes; must be one of 15, 30, 60, 120, 240"),
+    limit: int = Query(5),
+    window: int = Query(30, deprecated=True, description="Deprecated: use time_window instead"),
+) -> schemas.NextRecommendationQuery:
+    if energy is not None and energy not in _VALID_ENERGIES:
+        raise HTTPException(status_code=422, detail=f"energy must be one of {sorted(_VALID_ENERGIES)}")
+    if time_window is not None and time_window not in _VALID_TIME_WINDOWS:
+        raise HTTPException(status_code=422, detail=f"time_window must be one of {sorted(_VALID_TIME_WINDOWS)}")
+    return schemas.NextRecommendationQuery(energy=energy, time_window=time_window, limit=limit, window=window)
+
 
 @router.get("/next", response_model=schemas.RecommendationResponse)
 def next_recommendations(
-    window: int = 30, 
-    limit: int = 5, 
-    energy: str = "high", 
+    query: schemas.NextRecommendationQuery = Depends(_parse_next_query),
     current_user: Dict[str, Any] = Depends(get_current_user_dep),
     db: Session = Depends(get_db),
 ):
-    """Get next task recommendations."""
+    """Get next task recommendations with optional energy and time_window filtering."""
     user_id = current_user["user_id"]
     # Fetch candidate tasks
     tasks: List[models.Task] = (
@@ -29,7 +43,7 @@ def next_recommendations(
         .filter(models.Task.status.in_(['backlog','doing','today', 'week']))
         .all()
     )
-    ranked = prioritize_tasks(tasks, db=db)
+    ranked = prioritize_tasks(tasks, db=db, energy=query.energy, time_window=query.time_window)
 
     task_repo = TaskRepository(db)
     task_out_by_id = {
@@ -37,7 +51,7 @@ def next_recommendations(
     }
 
     items: List[schemas.RecommendationItem] = []
-    for r in ranked[: max(1, limit)]:  # always at least 1 if any task exists
+    for r in ranked[: max(1, query.limit)]:  # always at least 1 if any task exists
         items.append(
             schemas.RecommendationItem(
                 task=task_out_by_id[r.task.id],
