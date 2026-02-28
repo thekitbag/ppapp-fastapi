@@ -1,0 +1,32 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from typing import Dict, Any, Optional
+from datetime import datetime
+
+from app.db import get_db
+from app.services.reporting import ReportingService
+from app.schemas import GoalReportResponse
+from app.api.v1.auth import get_current_user_dep
+
+router = APIRouter()
+
+
+def get_reporting_service(db: Session = Depends(get_db)) -> ReportingService:
+    return ReportingService(db)
+
+
+@router.get("/goals/{goal_id}", response_model=GoalReportResponse)
+def get_goal_report(
+    goal_id: str,
+    start_date: Optional[datetime] = Query(None, description="Inclusive start (ISO8601)"),
+    end_date: Optional[datetime] = Query(None, description="Inclusive end (ISO8601)"),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    reporting_service: ReportingService = Depends(get_reporting_service),
+):
+    """Return cumulative completed task size for a goal and all its descendants."""
+    return reporting_service.goal_progress_report(
+        goal_id,
+        current_user["user_id"],
+        start_date=start_date,
+        end_date=end_date,
+    )

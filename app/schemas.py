@@ -217,3 +217,13 @@ class RecommendationItem(BaseModel):
 
 class RecommendationResponse(BaseModel):
     items: List[RecommendationItem]
+
+
+class GoalReportResponse(BaseModel):
+    goal_id: str
+    goal_title: str
+    total_size: int
+    direct_size: int
+    descendant_size: int
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
