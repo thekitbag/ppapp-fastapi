@@ -1,8 +1,14 @@
 """Integration tests for GET /api/v1/reports/summary."""
+import uuid
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from app.main import app
+from app.models import Task, TaskGoal
 
 client = TestClient(app)
+_engine = create_engine("sqlite:///./test.db", connect_args={"check_same_thread": False})
+_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
 WINDOW = {"start_date": "2020-01-01T00:00:00", "end_date": "2099-12-31T23:59:59"}
 WINDOW_2025 = {"start_date": "2025-01-01T00:00:00", "end_date": "2025-12-31T23:59:59"}
@@ -51,6 +57,38 @@ def _link(task_id, goal_id, headers=None):
 
 def _summary(params, headers=None):
     return client.get("/api/v1/reports/summary", params=params, headers=headers or {})
+
+
+def _set_task_legacy_goal(task_id, goal_id):
+    db = _SessionLocal()
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        assert task is not None, f"Task not found: {task_id}"
+        task.goal_id = goal_id
+        db.commit()
+    finally:
+        db.close()
+
+
+def _insert_task_goal(task_id, goal_id, user_id=None):
+    db = _SessionLocal()
+    try:
+        db.add(TaskGoal(
+            id=f"tg_{uuid.uuid4().hex[:8]}",
+            task_id=task_id,
+            goal_id=goal_id,
+            user_id=user_id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _group_map(summary_body):
+    return {
+        (g["goal_id"] if g["goal_id"] is not None else "__NO_GOAL__"): g["total_size"]
+        for g in summary_body["groups"]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -198,3 +236,64 @@ def test_multi_root_task_counted_once():
     # We can't assert exactly which bucket without knowing IDs, but the total must
     # not double-count: impact_score includes each task once.
     assert body["impact_score"] == sum(g["total_size"] for g in body["groups"])
+
+
+def test_legacy_goal_id_attributed_to_root_not_no_goal():
+    """Task linked only via legacy tasks.goal_id is attributed to the root goal."""
+    headers = {"x-test-user-id": "user_other"}
+    before = _summary(WINDOW, headers=headers).json()
+    before_map = _group_map(before)
+
+    root = _create_goal("Legacy Root (API test)", headers=headers)
+    child = _create_goal("Legacy Child (API test)", parent_goal_id=root, headers=headers)
+    task_id = _create_task("Legacy-only link task", 8, headers=headers)
+    _set_task_legacy_goal(task_id, child)
+
+    after = _summary(WINDOW, headers=headers)
+    assert after.status_code == 200, after.text
+    after_map = _group_map(after.json())
+
+    assert after_map.get(root, 0) - before_map.get(root, 0) == 8
+    assert after_map.get("__NO_GOAL__", 0) - before_map.get("__NO_GOAL__", 0) == 0
+
+
+def test_mixed_taskgoal_and_legacy_goal_id_roll_up_correctly():
+    """TaskGoal-linked and legacy-linked tasks both contribute to goal buckets."""
+    headers = {"x-test-user-id": "user_test"}
+    before = _summary(WINDOW, headers=headers).json()
+    before_map = _group_map(before)
+
+    root_a = _create_goal("Mixed Root A (API test)", headers=headers)
+    root_b = _create_goal("Mixed Root B (API test)", headers=headers)
+    task_a = _create_task("Modern link task", 3, headers=headers)
+    task_b = _create_task("Legacy link task", 8, headers=headers)
+    _link(task_a, root_a, headers=headers)
+    _set_task_legacy_goal(task_b, root_b)
+
+    after = _summary(WINDOW, headers=headers)
+    assert after.status_code == 200, after.text
+    after_body = after.json()
+    after_map = _group_map(after_body)
+
+    assert after_map.get(root_a, 0) - before_map.get(root_a, 0) == 3
+    assert after_map.get(root_b, 0) - before_map.get(root_b, 0) == 8
+    assert after_map.get("__NO_GOAL__", 0) - before_map.get("__NO_GOAL__", 0) == 0
+    assert after_body["impact_score"] == sum(g["total_size"] for g in after_body["groups"])
+
+
+def test_taskgoal_null_user_id_still_attributed():
+    """TaskGoal rows with NULL user_id are still used when task/goal ownership is valid."""
+    headers = {"x-test-user-id": "user_other"}
+    before = _summary(WINDOW, headers=headers).json()
+    before_map = _group_map(before)
+
+    root = _create_goal("Null user_id root (API test)", headers=headers)
+    task_id = _create_task("NULL user_id link task", 5, headers=headers)
+    _insert_task_goal(task_id, root, user_id=None)
+
+    after = _summary(WINDOW, headers=headers)
+    assert after.status_code == 200, after.text
+    after_map = _group_map(after.json())
+
+    assert after_map.get(root, 0) - before_map.get(root, 0) == 5
+    assert after_map.get("__NO_GOAL__", 0) - before_map.get("__NO_GOAL__", 0) == 0
