@@ -27,9 +27,15 @@ class AuthService:
         
         # Microsoft configuration
         if self.ms_configured:
-            # Use multi-tenant authority by default. Override via MS_AUTHORITY_TENANT
-            # (e.g. set to a tenant GUID for single-tenant behavior).
-            self.ms_authority_tenant = (settings.ms_authority_tenant or "organizations").strip()
+            # Authority selection (in order):
+            # 1) MS_AUTHORITY_TENANT (preferred)
+            # 2) MS_TENANT_ID (legacy fallback; supports values like "common")
+            # 3) organizations (default)
+            self.ms_authority_tenant = (
+                settings.ms_authority_tenant
+                or settings.ms_tenant_id
+                or "organizations"
+            ).strip()
             self.ms_client_id = settings.ms_client_id
             self.ms_client_secret = settings.ms_client_secret
             self.ms_auth_base = f"https://login.microsoftonline.com/{self.ms_authority_tenant}"

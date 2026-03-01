@@ -84,6 +84,7 @@ Notes:
   - Use `organizations` for work/school accounts from any Entra tenant.
   - Use `common` to include personal Microsoft accounts.
   - Use a specific tenant GUID only if you intentionally want single-tenant behavior.
+- Backward compatibility: if `MS_AUTHORITY_TENANT` is not set, the app falls back to `MS_TENANT_ID`; if neither is set, it defaults to `organizations`.
 
 ### Google OAuth in development
 - Google permits HTTP redirect URIs only for `localhost` (not `127.0.0.1`). Set `GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback` in `.env.local` and add the same value to your Google Cloud Console OAuth client.

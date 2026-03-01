@@ -7,9 +7,8 @@ def test_ms_authority_defaults_to_organizations(monkeypatch):
     monkeypatch.setattr(settings, "ms_client_id", "client-id")
     monkeypatch.setattr(settings, "ms_client_secret", "client-secret")
     monkeypatch.setattr(settings, "jwt_secret", "jwt-secret")
-    monkeypatch.setattr(settings, "ms_authority_tenant", "organizations")
-    # Keep legacy setting populated to ensure it does not force tenant-scoped authority.
-    monkeypatch.setattr(settings, "ms_tenant_id", "6d0f195d-eea2-442d-acdc-8094258019d6")
+    monkeypatch.setattr(settings, "ms_authority_tenant", None)
+    monkeypatch.setattr(settings, "ms_tenant_id", None)
 
     svc = AuthService()
 
@@ -17,6 +16,18 @@ def test_ms_authority_defaults_to_organizations(monkeypatch):
     assert svc.ms_auth_base == "https://login.microsoftonline.com/organizations"
     assert svc.ms_authorize_url.endswith("/organizations/oauth2/v2.0/authorize")
     assert svc.ms_token_url.endswith("/organizations/oauth2/v2.0/token")
+
+
+def test_ms_authority_falls_back_to_legacy_ms_tenant_id(monkeypatch):
+    monkeypatch.setattr(settings, "ms_client_id", "client-id")
+    monkeypatch.setattr(settings, "ms_client_secret", "client-secret")
+    monkeypatch.setattr(settings, "jwt_secret", "jwt-secret")
+    monkeypatch.setattr(settings, "ms_authority_tenant", None)
+    monkeypatch.setattr(settings, "ms_tenant_id", "common")
+
+    svc = AuthService()
+
+    assert svc.ms_auth_base == "https://login.microsoftonline.com/common"
 
 
 def test_ms_issuer_validation_accepts_tenant_placeholder_pattern():

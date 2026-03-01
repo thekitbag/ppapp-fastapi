@@ -30,7 +30,7 @@ class Settings(BaseModel):
     
     # Authentication
     ms_tenant_id: Optional[str] = None
-    ms_authority_tenant: str = "organizations"
+    ms_authority_tenant: Optional[str] = None
     ms_client_id: Optional[str] = None
     ms_client_secret: Optional[str] = None
     ms_redirect_uri: str = "http://127.0.0.1:8000/auth/ms/callback"  # default for local dev
@@ -96,7 +96,7 @@ class Settings(BaseModel):
             environment=environment,
             debug=os.getenv("DEBUG", "true").lower() == "true",
             ms_tenant_id=os.getenv("MS_TENANT_ID"),
-            ms_authority_tenant=os.getenv("MS_AUTHORITY_TENANT", "organizations"),
+            ms_authority_tenant=os.getenv("MS_AUTHORITY_TENANT"),
             ms_client_id=os.getenv("MS_CLIENT_ID"),
             ms_client_secret=os.getenv("MS_CLIENT_SECRET"),
             ms_redirect_uri=os.getenv("MS_REDIRECT_URI", "http://127.0.0.1:8000/auth/ms/callback"),
