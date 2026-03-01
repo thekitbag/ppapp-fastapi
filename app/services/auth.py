@@ -65,7 +65,9 @@ class AuthService:
             "redirect_uri": settings.ms_redirect_uri,
             "scope": "openid profile email offline_access",
             "state": state,
-            "response_mode": "query"
+            "response_mode": "query",
+            # Force Microsoft account chooser so users can switch accounts.
+            "prompt": "select_account",
         }
         
         auth_url = f"{self.ms_authorize_url}?" + urlencode(params)
