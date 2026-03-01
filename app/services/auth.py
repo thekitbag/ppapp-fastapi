@@ -17,7 +17,7 @@ class AuthService:
     
     def __init__(self):
         # Check if authentication settings are configured
-        self.ms_configured = all([settings.ms_tenant_id, settings.ms_client_id, settings.ms_client_secret, settings.jwt_secret])
+        self.ms_configured = all([settings.ms_client_id, settings.ms_client_secret, settings.jwt_secret])
         self.google_configured = all([settings.google_client_id, settings.google_client_secret, settings.jwt_secret])
         self.configured = self.ms_configured or self.google_configured
         
@@ -27,10 +27,12 @@ class AuthService:
         
         # Microsoft configuration
         if self.ms_configured:
-            self.ms_tenant_id = settings.ms_tenant_id
+            # Use multi-tenant authority by default. Override via MS_AUTHORITY_TENANT
+            # (e.g. set to a tenant GUID for single-tenant behavior).
+            self.ms_authority_tenant = (settings.ms_authority_tenant or "organizations").strip()
             self.ms_client_id = settings.ms_client_id
             self.ms_client_secret = settings.ms_client_secret
-            self.ms_auth_base = f"https://login.microsoftonline.com/{self.ms_tenant_id}"
+            self.ms_auth_base = f"https://login.microsoftonline.com/{self.ms_authority_tenant}"
             self.ms_authorize_url = f"{self.ms_auth_base}/oauth2/v2.0/authorize"
             self.ms_token_url = f"{self.ms_auth_base}/oauth2/v2.0/token"
         
@@ -354,7 +356,7 @@ class AuthService:
                 return jwt.decode(id_token, options={"verify_signature": False})
             
             # Get OIDC discovery info
-            oidc_discovery_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/v2.0/.well-known/openid-configuration"
+            oidc_discovery_url = f"https://login.microsoftonline.com/{self.ms_authority_tenant}/v2.0/.well-known/openid-configuration"
             
             async with httpx.AsyncClient() as client:
                 cfg_response = await client.get(oidc_discovery_url, timeout=5)
@@ -374,9 +376,11 @@ class AuthService:
                 signing_key.key,
                 algorithms=["RS256"],
                 audience=self.ms_client_id,
-                issuer=issuer,
-                options={"require": ["exp", "iat"], "leeway": 60}  # small clock skew
+                options={"require": ["exp", "iat"], "leeway": 60, "verify_iss": False},  # validate issuer below
             )
+            token_issuer = user_info.get("iss")
+            if not self._is_valid_ms_issuer(expected_issuer=issuer, token_issuer=token_issuer):
+                raise ValidationError("JWT token has invalid issuer")
             
             return user_info
             
@@ -391,3 +395,19 @@ class AuthService:
         except Exception as e:
             logger.error(f"JWT verification failed: {str(e)}")
             raise ValidationError(f"JWT token verification failed: {str(e)}")
+
+    @staticmethod
+    def _is_valid_ms_issuer(expected_issuer: str, token_issuer: Optional[str]) -> bool:
+        """Accept exact issuer, plus Azure multi-tenant template issuer with {tenantid}."""
+        if not token_issuer:
+            return False
+
+        if expected_issuer == token_issuer:
+            return True
+
+        tenant_placeholder = "{tenantid}"
+        if tenant_placeholder in expected_issuer:
+            prefix, suffix = expected_issuer.split(tenant_placeholder, 1)
+            return token_issuer.startswith(prefix) and token_issuer.endswith(suffix)
+
+        return False

@@ -80,6 +80,10 @@ Notes:
 ### Microsoft OAuth in development
 - Azure permits HTTP redirect URIs only for `localhost` (not `127.0.0.1`). Set `MS_REDIRECT_URI=http://localhost:8000/auth/ms/callback` in `.env.local` and add the same value to your Azure app registration.
 - The dev server is accessible via both `localhost` and `127.0.0.1`, but the OAuth redirect must exactly match the Azure configuration.
+- Multi-tenant sign-in authority is controlled by `MS_AUTHORITY_TENANT` (default: `organizations`).
+  - Use `organizations` for work/school accounts from any Entra tenant.
+  - Use `common` to include personal Microsoft accounts.
+  - Use a specific tenant GUID only if you intentionally want single-tenant behavior.
 
 ### Google OAuth in development
 - Google permits HTTP redirect URIs only for `localhost` (not `127.0.0.1`). Set `GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback` in `.env.local` and add the same value to your Google Cloud Console OAuth client.
