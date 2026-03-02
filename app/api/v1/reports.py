@@ -5,7 +5,7 @@ from datetime import datetime
 
 from app.db import get_db
 from app.services.reporting import ReportingService
-from app.schemas import GoalReportResponse, SummaryReportResponse
+from app.schemas import GoalReportResponse, SummaryReportResponse, BreakdownReportResponse
 from app.api.v1.auth import get_current_user_dep
 
 router = APIRouter()
@@ -29,6 +29,23 @@ def get_goal_report(
         current_user["user_id"],
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@router.get("/breakdown", response_model=BreakdownReportResponse)
+def get_breakdown_report(
+    start_date: datetime = Query(..., description="Inclusive start (ISO8601)"),
+    end_date: datetime = Query(..., description="Inclusive end (ISO8601)"),
+    parent_goal_id: Optional[str] = Query(None, description="Drill into children of this goal; omit for root view"),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    reporting_service: ReportingService = Depends(get_reporting_service),
+):
+    """Return hierarchical breakdown of completed task points by goal level."""
+    return reporting_service.breakdown_report(
+        current_user["user_id"],
+        start_date=start_date,
+        end_date=end_date,
+        parent_goal_id=parent_goal_id,
     )
 
 

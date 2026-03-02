@@ -327,3 +327,353 @@ class TestSummaryReport:
         assert root_group is not None, "Root group missing — null user_id row was dropped"
         assert root_group.total_size == 5
         assert no_goal.total_size == 0
+
+
+# ---------------------------------------------------------------------------
+# ReportingService.breakdown_report tests (REPORT-005)
+# ---------------------------------------------------------------------------
+
+
+class TestBreakdownReport:
+    """Unit tests for ReportingService.breakdown_report."""
+
+    @pytest.fixture
+    def svc(self, test_db):
+        return ReportingService(test_db)
+
+    @pytest.fixture
+    def user(self, test_db):
+        u = User(
+            id="bd-svc-user-1",
+            provider=ProviderEnum.google,
+            provider_sub="bd-svc-sub-1",
+            email="bdsvc1@example.com",
+            name="BD SVC User",
+        )
+        test_db.add(u)
+        test_db.commit()
+        return u
+
+    @pytest.fixture
+    def other_user(self, test_db):
+        u = User(
+            id="bd-svc-user-2",
+            provider=ProviderEnum.google,
+            provider_sub="bd-svc-sub-2",
+            email="bdsvc2@example.com",
+            name="BD SVC Other",
+        )
+        test_db.add(u)
+        test_db.commit()
+        return u
+
+    def _make_goal(self, db, user_id, title, goal_type=None, parent_goal_id=None):
+        from app.models import GoalTypeEnum as GTE
+        g = Goal(
+            id=f"goal_{_uid()}",
+            title=title,
+            user_id=user_id,
+            type=goal_type,
+            parent_goal_id=parent_goal_id,
+        )
+        db.add(g)
+        db.commit()
+        return g
+
+    def _make_task(self, db, user_id, title, size, completed_at):
+        t = Task(
+            id=f"task_{_uid()}",
+            title=title,
+            user_id=user_id,
+            status=StatusEnum.done,
+            sort_order=0.0,
+            size=size,
+            completed_at=completed_at,
+        )
+        db.add(t)
+        db.commit()
+        return t
+
+    def _link(self, db, task, goal, user_id):
+        tg = TaskGoal(
+            id=f"tg_{_uid()}",
+            task_id=task.id,
+            goal_id=goal.id,
+            user_id=user_id,
+        )
+        db.add(tg)
+        db.commit()
+
+    # ------------------------------------------------------------------
+    # Root view tests
+    # ------------------------------------------------------------------
+
+    def test_root_view_has_no_goal_row(self, svc, user, test_db):
+        """Root view always includes a No Goal row."""
+        result = svc.breakdown_report(user.id, _START, _END)
+        no_goal = next((r for r in result.breakdown if r.goal_id is None), None)
+        assert no_goal is not None
+        assert no_goal.goal_title == "No Goal"
+        assert no_goal.has_children is False
+
+    def test_root_view_shows_root_goals(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual")
+        result = svc.breakdown_report(user.id, _START, _END)
+        row_ids = [r.goal_id for r in result.breakdown]
+        assert annual.id in row_ids
+
+    def test_cascading_sum_to_root(self, svc, user, test_db):
+        """Points from tasks linked to descendants roll up to the root annual row."""
+        annual = self._make_goal(test_db, user.id, "Annual")
+        quarterly = self._make_goal(test_db, user.id, "Q1", parent_goal_id=annual.id)
+        weekly = self._make_goal(test_db, user.id, "W1", parent_goal_id=quarterly.id)
+
+        t1 = self._make_task(test_db, user.id, "T1", 3, _dt(2025, 2, 1))
+        t2 = self._make_task(test_db, user.id, "T2", 5, _dt(2025, 4, 1))
+        self._link(test_db, t1, quarterly, user.id)
+        self._link(test_db, t2, weekly, user.id)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        assert annual_row.points == 8
+
+    def test_unlinked_tasks_go_to_no_goal(self, svc, user, test_db):
+        t = self._make_task(test_db, user.id, "Unlinked", 5, _dt(2025, 6, 1))
+        result = svc.breakdown_report(user.id, _START, _END)
+        no_goal = next(r for r in result.breakdown if r.goal_id is None)
+        assert no_goal.points == 5
+
+    def test_total_impact_equals_sum_of_rows(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual TI")
+        t1 = self._make_task(test_db, user.id, "T1", 3, _dt(2025, 6, 1))
+        t2 = self._make_task(test_db, user.id, "T2", 2, _dt(2025, 6, 2))
+        self._link(test_db, t1, annual, user.id)
+        # t2 unlinked → No Goal bucket
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        assert result.total_impact == sum(r.points for r in result.breakdown)
+
+    def test_percentage_calculation(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual Pct")
+        t = self._make_task(test_db, user.id, "T", 3, _dt(2025, 6, 1))
+        self._link(test_db, t, annual, user.id)
+
+        t_unlinked = self._make_task(test_db, user.id, "TU", 1, _dt(2025, 6, 1))
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        no_goal = next(r for r in result.breakdown if r.goal_id is None)
+        # total = 4; annual = 3 → 75%; no goal = 1 → 25%
+        assert annual_row.percentage == 75
+        assert no_goal.percentage == 25
+
+    def test_has_children_flag(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual HC")
+        self._make_goal(test_db, user.id, "Q1 HC", parent_goal_id=annual.id)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        assert annual_row.has_children is True
+
+    def test_goal_type_propagated(self, svc, user, test_db):
+        from app.models import GoalTypeEnum as GTE
+        annual = self._make_goal(test_db, user.id, "Annual GT", goal_type=GTE.annual)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        assert annual_row.goal_type == "annual"
+
+    # ------------------------------------------------------------------
+    # Child/drill-down view tests
+    # ------------------------------------------------------------------
+
+    def test_child_view_shows_immediate_children(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual DV")
+        q1 = self._make_goal(test_db, user.id, "Q1 DV", parent_goal_id=annual.id)
+        q2 = self._make_goal(test_db, user.id, "Q2 DV", parent_goal_id=annual.id)
+
+        result = svc.breakdown_report(user.id, _START, _END, parent_goal_id=annual.id)
+        row_ids = {r.goal_id for r in result.breakdown}
+        assert q1.id in row_ids
+        assert q2.id in row_ids
+        assert annual.id not in row_ids
+
+    def test_child_view_no_no_goal_row(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual NG")
+        self._make_goal(test_db, user.id, "Q NG", parent_goal_id=annual.id)
+
+        result = svc.breakdown_report(user.id, _START, _END, parent_goal_id=annual.id)
+        assert all(r.goal_id is not None for r in result.breakdown)
+
+    def test_child_view_parent_id_set(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual PI")
+        self._make_goal(test_db, user.id, "Q PI", parent_goal_id=annual.id)
+
+        result = svc.breakdown_report(user.id, _START, _END, parent_goal_id=annual.id)
+        assert result.parent_id == annual.id
+
+    def test_child_view_cascading_sum(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual CS")
+        quarterly = self._make_goal(test_db, user.id, "Q1 CS", parent_goal_id=annual.id)
+        weekly = self._make_goal(test_db, user.id, "W1 CS", parent_goal_id=quarterly.id)
+
+        t = self._make_task(test_db, user.id, "T", 5, _dt(2025, 4, 1))
+        self._link(test_db, t, weekly, user.id)
+
+        result = svc.breakdown_report(user.id, _START, _END, parent_goal_id=annual.id)
+        q_row = next(r for r in result.breakdown if r.goal_id == quarterly.id)
+        assert q_row.points == 5
+
+    def test_child_view_excludes_out_of_subtree_tasks(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual EX")
+        q = self._make_goal(test_db, user.id, "Q EX", parent_goal_id=annual.id)
+        sibling = self._make_goal(test_db, user.id, "Sibling Annual")
+
+        t = self._make_task(test_db, user.id, "T", 5, _dt(2025, 6, 1))
+        self._link(test_db, t, sibling, user.id)  # outside annual's subtree
+
+        result = svc.breakdown_report(user.id, _START, _END, parent_goal_id=annual.id)
+        assert result.total_impact == 0
+
+    def test_unknown_parent_raises_not_found(self, svc, user, test_db):
+        with pytest.raises(NotFoundError):
+            svc.breakdown_report(user.id, _START, _END, parent_goal_id="nonexistent")
+
+    def test_other_user_parent_raises_not_found(self, svc, user, other_user, test_db):
+        other_goal = self._make_goal(test_db, other_user.id, "Other Goal")
+        with pytest.raises(NotFoundError):
+            svc.breakdown_report(user.id, _START, _END, parent_goal_id=other_goal.id)
+
+    # ------------------------------------------------------------------
+    # Attribution algorithm tests
+    # ------------------------------------------------------------------
+
+    def test_deepest_link_in_same_branch(self, svc, user, test_db):
+        """Task linked to both parent and child → attributed to child (deepest)."""
+        annual = self._make_goal(test_db, user.id, "Annual DL")
+        quarterly = self._make_goal(test_db, user.id, "Q DL", parent_goal_id=annual.id)
+        weekly = self._make_goal(test_db, user.id, "W DL", parent_goal_id=quarterly.id)
+
+        t = self._make_task(test_db, user.id, "T", 5, _dt(2025, 6, 1))
+        self._link(test_db, t, quarterly, user.id)
+        self._link(test_db, t, weekly, user.id)
+
+        # In root view task should be counted exactly once under annual
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        assert annual_row.points == 5
+        assert result.total_impact == 5
+
+    def test_no_double_counting_multi_link(self, svc, user, test_db):
+        """Task linked to three goals in same branch counted once."""
+        annual = self._make_goal(test_db, user.id, "Annual NDC")
+        q = self._make_goal(test_db, user.id, "Q NDC", parent_goal_id=annual.id)
+        w = self._make_goal(test_db, user.id, "W NDC", parent_goal_id=q.id)
+
+        t = self._make_task(test_db, user.id, "T", 3, _dt(2025, 6, 1))
+        self._link(test_db, t, annual, user.id)
+        self._link(test_db, t, q, user.id)
+        self._link(test_db, t, w, user.id)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        assert result.total_impact == 3
+
+    def test_cross_branch_same_depth_counted_once(self, svc, user, test_db):
+        """Task linked to two siblings (same depth) counted once — min goal_id wins."""
+        annual = self._make_goal(test_db, user.id, "Annual CB")
+        q1 = self._make_goal(test_db, user.id, "Q1 CB", parent_goal_id=annual.id)
+        q2 = self._make_goal(test_db, user.id, "Q2 CB", parent_goal_id=annual.id)
+
+        t = self._make_task(test_db, user.id, "T", 5, _dt(2025, 6, 1))
+        self._link(test_db, t, q1, user.id)
+        self._link(test_db, t, q2, user.id)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        assert annual_row.points == 5
+        assert result.total_impact == 5  # no double-counting
+
+    # ------------------------------------------------------------------
+    # Date filtering tests
+    # ------------------------------------------------------------------
+
+    def test_date_filter_excludes_out_of_range(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual DF")
+        t_in = self._make_task(test_db, user.id, "In", 5, _dt(2025, 6, 15))
+        t_out = self._make_task(test_db, user.id, "Out", 3, _dt(2025, 1, 1))
+        self._link(test_db, t_in, annual, user.id)
+        self._link(test_db, t_out, annual, user.id)
+
+        result = svc.breakdown_report(user.id, _dt(2025, 6, 1), _dt(2025, 6, 30))
+        assert result.total_impact == 5
+
+    def test_date_bounds_inclusive(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual INC")
+        t_start = self._make_task(test_db, user.id, "On start", 2, _dt(2025, 6, 1))
+        t_end = self._make_task(test_db, user.id, "On end", 3, _dt(2025, 6, 30))
+        self._link(test_db, t_start, annual, user.id)
+        self._link(test_db, t_end, annual, user.id)
+
+        result = svc.breakdown_report(user.id, _dt(2025, 6, 1), _dt(2025, 6, 30))
+        assert result.total_impact == 5
+
+    # ------------------------------------------------------------------
+    # Data quality tests
+    # ------------------------------------------------------------------
+
+    def test_tasks_without_size_excluded(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual NSZ")
+        t = Task(
+            id=f"task_{_uid()}",
+            title="No size",
+            user_id=user.id,
+            status=StatusEnum.done,
+            sort_order=0.0,
+            size=None,
+            completed_at=_dt(2025, 6, 1),
+        )
+        test_db.add(t)
+        test_db.commit()
+        self._link(test_db, t, annual, user.id)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        assert result.total_impact == 0
+
+    def test_incomplete_tasks_excluded(self, svc, user, test_db):
+        annual = self._make_goal(test_db, user.id, "Annual INC2")
+        t = Task(
+            id=f"task_{_uid()}",
+            title="Not done",
+            user_id=user.id,
+            status=StatusEnum.doing,
+            sort_order=0.0,
+            size=8,
+            completed_at=None,
+        )
+        test_db.add(t)
+        test_db.commit()
+        self._link(test_db, t, annual, user.id)
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next((r for r in result.breakdown if r.goal_id == annual.id), None)
+        assert annual_row is None or annual_row.points == 0
+
+    def test_legacy_task_goal_id_counted(self, svc, user, test_db):
+        """Task linked via legacy Task.goal_id (no TaskGoal row) is attributed."""
+        annual = self._make_goal(test_db, user.id, "Annual LGC")
+        t = Task(
+            id=f"task_{_uid()}",
+            title="Legacy",
+            user_id=user.id,
+            status=StatusEnum.done,
+            sort_order=0.0,
+            size=5,
+            completed_at=_dt(2025, 6, 1),
+            goal_id=annual.id,  # legacy field
+        )
+        test_db.add(t)
+        test_db.commit()
+
+        result = svc.breakdown_report(user.id, _START, _END)
+        annual_row = next(r for r in result.breakdown if r.goal_id == annual.id)
+        assert annual_row.points == 5

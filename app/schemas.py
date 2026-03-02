@@ -248,3 +248,18 @@ class SummaryReportResponse(BaseModel):
     end_date: datetime
     impact_score: int
     groups: List[GoalGroupEntry]
+
+
+class BreakdownRow(BaseModel):
+    goal_id: Optional[str]
+    goal_title: str
+    goal_type: Optional[GoalType] = None
+    points: int
+    percentage: int
+    has_children: bool
+
+
+class BreakdownReportResponse(BaseModel):
+    parent_id: Optional[str]
+    total_impact: int
+    breakdown: List[BreakdownRow]
