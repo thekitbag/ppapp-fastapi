@@ -1,15 +1,14 @@
 """
-Recommendation engine abstraction (SUGGEST-003).
+Recommendation engine abstraction (SUGGEST-003 / SUGGEST-004).
 
 Provides a stable strategy interface so ranking logic can be swapped between
-algorithmic scoring and future LLM-based prioritization without changing the
-API contract or controller code.
+algorithmic scoring and LLM-based prioritization without changing the API
+contract or controller code.
 
 Engines:
-  AlgorithmicRecommendationEngine  — current deterministic scorer (default)
-  LLMRecommendationEngine          — placeholder; post-processes algorithmic
-                                     output with narrative why text. No external
-                                     API is called in this implementation.
+  AlgorithmicRecommendationEngine  — deterministic weighted-factor scorer (default)
+  LLMRecommendationEngine          — calls an OpenAI-compatible API for the top
+                                     pick; falls back to algorithmic on any failure.
 
 Usage:
   engine = get_recommendation_engine(settings.use_llm_prioritization)
@@ -90,48 +89,188 @@ class AlgorithmicRecommendationEngine(RecommendationEngine):
         return result
 
 
+# Status values that are eligible for LLM candidate selection
+_LLM_CANDIDATE_STATUSES = {"today", "week"}
+
+
 class LLMRecommendationEngine(RecommendationEngine):
     """
-    Placeholder LLM engine (SUGGEST-003).
+    LLM-powered engine (SUGGEST-004).
 
-    Currently passes through algorithmic ranking and post-processes the `why`
-    text into a more narrative, conversational style. No external LLM API is
-    called in this implementation — integration is deferred to a future ticket.
+    Selects the top task via an OpenAI-compatible API call; fills remaining
+    slots from the algorithmic ranking of the full candidate pool.
 
-    Output contract is identical to AlgorithmicRecommendationEngine:
-    same Ranked dataclass, same response shape.
+    Fallback: any failure (missing key, empty candidates, transport error,
+    invalid response) falls back to the full algorithmic ranking, logging the
+    reason at INFO level.
+
+    The LLM provider is injectable via __init__ for testing.
     """
 
-    NAME = "llm_placeholder"
+    NAME = "llm"
 
-    def recommend(self, ctx: RecommendationContext) -> List[Ranked]:
+    def __init__(self, _provider=None) -> None:
+        # Allow test injection; production builds the provider lazily in recommend()
+        self._injected_provider = _provider
+
+    def _build_provider(self):
+        """
+        Return the provider to use for this request.
+
+        Priority order:
+        1. Injected provider (tests / explicit override)
+        2. Provider built from settings if LLM_API_KEY is configured
+        3. None → caller must fall back to algorithmic
+        """
+        if self._injected_provider is not None:
+            return self._injected_provider
+
+        from app.core.config import settings
+        from app.services.llm_recommendation_provider import LLMRecommendationProvider
+
+        if not settings.llm_api_key:
+            return None
+
+        return LLMRecommendationProvider(
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            timeout=settings.llm_timeout_seconds,
+        )
+
+    def _fallback(
+        self,
+        ctx: RecommendationContext,
+        reason: str,
+    ) -> List[Ranked]:
+        """Run algorithmic ranking and log why LLM was not used."""
         ranked = prioritize_tasks(
             ctx.tasks,
             db=ctx.db,
             energy=ctx.energy,
             time_window=ctx.time_window,
         )
-        top = ranked[: max(1, ctx.limit)]
-
-        result = [
-            Ranked(
-                task=r.task,
-                raw=r.raw,
-                score=r.score,
-                factors=r.factors,
-                why=_to_narrative(r.why),
-            )
-            for r in top
-        ]
+        result = ranked[: max(1, ctx.limit)]
 
         logger.info(
-            "engine=%s candidates=%d returned=%d energy=%s time_window=%s",
+            "engine=%s candidates=%d returned=%d energy=%s time_window=%s "
+            "llm_attempted=False llm_success=False fallback_reason=%s",
+            self.NAME, len(ctx.tasks), len(result),
+            ctx.energy, ctx.time_window, reason,
+        )
+        for r in result:
+            logger.debug("task_id=%s score=%.2f why=%r", r.task.id, r.score, r.why)
+
+        return result
+
+    def recommend(self, ctx: RecommendationContext) -> List[Ranked]:  # noqa: C901
+        from app.services.llm_recommendation_provider import LLMProviderError
+        from app.services.recommendation_context_assembler import (
+            RecommendationContextAssembler,
+        )
+
+        # Step 1: resolve provider
+        provider = self._build_provider()
+        if provider is None:
+            return self._fallback(ctx, "missing_api_key")
+
+        # Step 2: narrow candidates to today/week statuses
+        llm_candidates = [
+            t for t in ctx.tasks
+            if _status_str(t.status) in _LLM_CANDIDATE_STATUSES
+        ]
+        if not llm_candidates:
+            return self._fallback(ctx, "empty_candidate_set")
+
+        # Step 3: algorithmic ranking of the full pool (used for remainder slots)
+        algo_ranked = prioritize_tasks(
+            ctx.tasks,
+            db=ctx.db,
+            energy=ctx.energy,
+            time_window=ctx.time_window,
+        )
+        algo_by_id = {r.task.id: r for r in algo_ranked}
+
+        # Step 4: resolve user_id
+        user_id = llm_candidates[0].user_id
+
+        # Step 5: assemble context and call LLM
+        context_dict = RecommendationContextAssembler(ctx.db, user_id).assemble(
+            llm_candidates, ctx.energy, ctx.time_window
+        )
+
+        try:
+            raw = provider.call(context_dict)
+        except LLMProviderError:
+            return self._fallback(ctx, "llm_request_failed")
+        except Exception:
+            logger.warning(
+                "engine=%s unexpected error in provider.call; falling back",
+                self.NAME, exc_info=True,
+            )
+            return self._fallback(ctx, "llm_request_failed")
+
+        # Step 6 & 7: validate response
+        llm_candidate_ids = {t.id for t in llm_candidates}
+
+        try:
+            task_id = raw["task_id"]
+        except (KeyError, TypeError):
+            return self._fallback(ctx, "invalid_response")
+
+        if task_id not in llm_candidate_ids:
+            return self._fallback(ctx, "unknown_task_id")
+
+        try:
+            llm_score = float(raw["score"])
+            llm_score = max(0.0, min(100.0, llm_score))
+        except (KeyError, TypeError, ValueError):
+            return self._fallback(ctx, "invalid_response")
+
+        try:
+            llm_why = str(raw["why"]).strip()
+        except (KeyError, TypeError):
+            return self._fallback(ctx, "invalid_response")
+
+        if not llm_why:
+            return self._fallback(ctx, "invalid_response")
+
+        # Step 8: build the LLM-selected Ranked item (keep algo factors)
+        algo_item = algo_by_id.get(task_id)
+        if algo_item is None:
+            # task_id was in candidates but didn't survive algo ranking (shouldn't happen)
+            return self._fallback(ctx, "invalid_response")
+
+        selected_task = algo_item.task
+        llm_item = Ranked(
+            task=selected_task,
+            raw=algo_item.raw,
+            score=llm_score,
+            factors=algo_item.factors,
+            why=llm_why,
+        )
+
+        # Step 9: remainder = algo ranking excluding the LLM-selected task
+        remainder = [r for r in algo_ranked if r.task.id != task_id]
+
+        # Step 10: combine
+        result = [llm_item] + remainder[: max(0, ctx.limit - 1)]
+
+        # Step 11: structured log
+        logger.info(
+            "engine=%s candidates=%d returned=%d energy=%s time_window=%s "
+            "llm_attempted=True llm_success=True fallback_reason=None",
             self.NAME, len(ctx.tasks), len(result), ctx.energy, ctx.time_window,
         )
         for r in result:
             logger.debug("task_id=%s score=%.2f why=%r", r.task.id, r.score, r.why)
 
         return result
+
+
+def _status_str(status) -> str:
+    """Return the string value of a status enum or string."""
+    return status.value if hasattr(status, "value") else str(status)
 
 
 def _to_narrative(why: str) -> str:

@@ -46,6 +46,10 @@ class Settings(BaseModel):
     
     # Recommendations
     use_llm_prioritization: bool = False
+    llm_api_key: Optional[str] = None
+    llm_model: str = "gpt-4.1-mini"
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_timeout_seconds: float = 8.0
 
     # Development settings
     dev_login_enabled: bool = False
@@ -107,6 +111,10 @@ class Settings(BaseModel):
             allowlist_emails=os.getenv("ALLOWLIST_EMAILS"),
             app_base_url=os.getenv("APP_BASE_URL", "http://localhost:3000"),
             use_llm_prioritization=os.getenv("USE_LLM_PRIORITIZATION", "false").lower() == "true",
+            llm_api_key=os.getenv("LLM_API_KEY") or None,
+            llm_model=os.getenv("LLM_MODEL", "gpt-4.1-mini"),
+            llm_base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
+            llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "8.0")),
             dev_login_enabled=os.getenv("DEV_LOGIN_ENABLED", "false").lower() == "true",
             auth_dev_enabled=os.getenv("AUTH_DEV_ENABLED", "false").lower() == "true",
             dev_login_allowed_emails=os.getenv("DEV_LOGIN_ALLOWED_EMAILS"),

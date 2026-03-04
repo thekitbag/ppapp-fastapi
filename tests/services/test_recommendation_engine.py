@@ -1,11 +1,13 @@
-"""Tests for the RecommendationEngine strategy abstraction (SUGGEST-003)."""
+"""Tests for the RecommendationEngine strategy abstraction (SUGGEST-003 / SUGGEST-004)."""
+import logging
 import uuid
 from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import Task
+from app.models import Goal, GoalStatusEnum, Task, TaskGoal, User, ProviderEnum
+from app.services.llm_recommendation_provider import LLMProviderError
 from app.services.recommendation_engine import (
     AlgorithmicRecommendationEngine,
     LLMRecommendationEngine,
@@ -24,11 +26,11 @@ def _uid():
     return str(uuid.uuid4())
 
 
-def _make_task(size=None, status="backlog", energy=None):
+def _make_task(size=None, status="backlog", energy=None, user_id="engine-user-1"):
     return Task(
         id=f"task_{_uid()}",
         title="Test Task",
-        user_id="engine-user-1",
+        user_id=user_id,
         status=status,
         sort_order=0.0,
         size=size,
@@ -46,6 +48,19 @@ def _ctx(tasks, limit=5, energy=None, time_window=None, db=None):
         time_window=time_window,
         limit=limit,
     )
+
+
+class _StubProvider:
+    """Injectable stub for LLMRecommendationEngine tests."""
+
+    def __init__(self, response=None, raises=None):
+        self.response = response
+        self.raises = raises
+
+    def call(self, context):
+        if self.raises:
+            raise self.raises
+        return self.response
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +138,6 @@ class TestAlgorithmicEngine:
 
     def test_returns_empty_for_no_tasks(self):
         engine = AlgorithmicRecommendationEngine()
-        # limit 0 or 1 with empty list → empty (no tasks to rank)
         result = engine.recommend(_ctx([]))
         assert result == []
 
@@ -144,8 +158,9 @@ class TestAlgorithmicEngine:
 class TestLLMEngine:
 
     def test_returns_valid_ranked_objects(self):
+        """With no provider (no API key), engine falls back to algorithmic."""
         tasks = [_make_task(), _make_task()]
-        engine = LLMRecommendationEngine()
+        engine = LLMRecommendationEngine(_provider=None)
         result = engine.recommend(_ctx(tasks))
         assert len(result) > 0
         for r in result:
@@ -155,41 +170,27 @@ class TestLLMEngine:
             assert hasattr(r, "why")
 
     def test_respects_limit(self):
+        """Fallback path respects limit."""
         tasks = [_make_task() for _ in range(8)]
-        engine = LLMRecommendationEngine()
+        engine = LLMRecommendationEngine(_provider=None)
         result = engine.recommend(_ctx(tasks, limit=4))
         assert len(result) == 4
 
-    def test_why_text_is_narrative(self):
-        """LLM engine produces narrative why text, not terse factor text."""
-        tasks = [_make_task(size=2)]
-        engine = LLMRecommendationEngine()
-        result = engine.recommend(_ctx(tasks))
-        why = result[0].why
-        # Narrative form should not start with a bare capitalized factor phrase
-        assert isinstance(why, str) and len(why) > 0
-
-    def test_scores_unchanged_from_algorithmic(self):
-        """LLM engine only changes why text — scores and factors are identical."""
-        tasks = [_make_task(size=1, energy="low"), _make_task(size=8, energy="high")]
-        algo = AlgorithmicRecommendationEngine()
-        llm = LLMRecommendationEngine()
-        ctx = _ctx(tasks, energy="low", limit=10)
-
-        algo_result = algo.recommend(ctx)
-        llm_result = llm.recommend(ctx)
-
-        assert len(algo_result) == len(llm_result)
-        for a, l in zip(algo_result, llm_result):
-            assert a.task.id == l.task.id
-            assert abs(a.score - l.score) < 0.001
-            assert a.factors == l.factors
-
     def test_factors_unchanged_from_algorithmic(self):
-        task = _make_task(size=3)
-        algo_result = AlgorithmicRecommendationEngine().recommend(_ctx([task]))
-        llm_result = LLMRecommendationEngine().recommend(_ctx([task]))
-        assert algo_result[0].factors == llm_result[0].factors
+        """LLM engine preserves algorithmic factors on the LLM-selected item."""
+        today_task = _make_task(size=3, status="today")
+        stub = _StubProvider(response={
+            "task_id": today_task.id,
+            "score": 85,
+            "why": "This task is ready and aligned with your goals.",
+        })
+        engine = LLMRecommendationEngine(_provider=stub)
+        ctx = _ctx([today_task], limit=1)
+
+        llm_result = engine.recommend(ctx)
+        algo_result = AlgorithmicRecommendationEngine().recommend(ctx)
+
+        assert llm_result[0].factors == algo_result[0].factors
 
 
 class TestNarrativeHelper:
@@ -224,7 +225,7 @@ class TestStrategySwitch:
 
     def test_config_true_gives_llm(self):
         engine = get_recommendation_engine(use_llm=True)
-        assert engine.NAME == "llm_placeholder"
+        assert engine.NAME == "llm"
 
     def test_endpoint_uses_llm_engine_when_overridden(self):
         """Endpoint returns valid shape when LLM engine is injected via dependency override."""
@@ -251,3 +252,237 @@ class TestStrategySwitch:
         r = client.get("/api/v1/recommendations/next?limit=3")
         assert r.status_code == 200
         assert "items" in r.json()
+
+
+# ---------------------------------------------------------------------------
+# Real LLM engine tests (SUGGEST-004)
+# ---------------------------------------------------------------------------
+
+class TestLLMEngineReal:
+    """
+    Tests for the real LLMRecommendationEngine behaviour.
+
+    Tests 1 uses the test_db fixture. Tests 2–8 use in-memory Task objects and
+    _StubProvider to avoid any network calls.
+    """
+
+    # ------------------------------------------------------------------
+    # Test 1: tenant isolation via context assembler
+    # ------------------------------------------------------------------
+
+    def test_tenant_isolation(self, test_db):
+        """
+        Context assembler must only include user_a's goals — never user_b's.
+        """
+        from app.services.recommendation_context_assembler import (
+            RecommendationContextAssembler,
+        )
+
+        # Create users
+        user_a = User(
+            id="iso-user-a",
+            provider=ProviderEnum.google,
+            provider_sub="iso-sub-a",
+            email="iso-a@example.com",
+            name="User A",
+        )
+        user_b = User(
+            id="iso-user-b",
+            provider=ProviderEnum.google,
+            provider_sub="iso-sub-b",
+            email="iso-b@example.com",
+            name="User B",
+        )
+        test_db.add_all([user_a, user_b])
+        test_db.commit()
+
+        # Create goals
+        goal_a = Goal(
+            id="goal-a-1",
+            title="User A Goal",
+            user_id="iso-user-a",
+        )
+        goal_b = Goal(
+            id="goal-b-1",
+            title="User B Goal",
+            user_id="iso-user-b",
+        )
+        test_db.add_all([goal_a, goal_b])
+        test_db.commit()
+
+        # Create task for user_a linked to goal_a
+        task_a = Task(
+            id="task-a-1",
+            title="User A Task",
+            user_id="iso-user-a",
+            status="today",
+            sort_order=0.0,
+            created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        )
+        test_db.add(task_a)
+        test_db.commit()
+
+        tg = TaskGoal(
+            id=f"tg-{_uid()}",
+            task_id="task-a-1",
+            goal_id="goal-a-1",
+            user_id="iso-user-a",
+        )
+        test_db.add(tg)
+        test_db.commit()
+
+        # Assemble context for user_a
+        assembler = RecommendationContextAssembler(test_db, "iso-user-a")
+        context = assembler.assemble([task_a], energy=None, time_window=None)
+
+        # Extract all goal IDs that appear in context
+        goal_ids_in_context = {g["id"] for g in context["goals"]}
+        for task_summary in context["tasks"]:
+            for lg in task_summary["linked_goals"]:
+                goal_ids_in_context.add(lg["id"])
+
+        assert "goal-a-1" in goal_ids_in_context
+        assert "goal-b-1" not in goal_ids_in_context
+
+    # ------------------------------------------------------------------
+    # Test 2: successful LLM path
+    # ------------------------------------------------------------------
+
+    def test_llm_success_path(self):
+        today_task = _make_task(status="today")
+        backlog_task = _make_task(status="backlog")
+
+        stub = _StubProvider(response={
+            "task_id": today_task.id,
+            "score": 91,
+            "why": "This task is urgent and aligns with your current goal.",
+        })
+        engine = LLMRecommendationEngine(_provider=stub)
+        result = engine.recommend(_ctx([today_task, backlog_task], limit=5))
+
+        assert result[0].task.id == today_task.id
+        assert result[0].score == 91
+
+    # ------------------------------------------------------------------
+    # Test 3: missing API key → fallback
+    # ------------------------------------------------------------------
+
+    def test_missing_api_key_fallback(self, caplog):
+        """Engine with no injected provider and no API key in settings falls back."""
+        tasks = [_make_task(status="today")]
+        # Pass _provider=None explicitly; settings.llm_api_key is None in test env
+        engine = LLMRecommendationEngine(_provider=None)
+
+        with caplog.at_level(logging.INFO, logger="app.services.recommendation_engine"):
+            result = engine.recommend(_ctx(tasks))
+
+        assert len(result) > 0
+        assert "missing_api_key" in caplog.text
+
+    # ------------------------------------------------------------------
+    # Test 4: transport error → fallback
+    # ------------------------------------------------------------------
+
+    def test_transport_error_fallback(self, caplog):
+        stub = _StubProvider(raises=LLMProviderError("timeout"))
+        today_task = _make_task(status="today")
+        engine = LLMRecommendationEngine(_provider=stub)
+
+        with caplog.at_level(logging.INFO, logger="app.services.recommendation_engine"):
+            result = engine.recommend(_ctx([today_task]))
+
+        assert len(result) > 0
+        assert "llm_request_failed" in caplog.text
+
+    # ------------------------------------------------------------------
+    # Test 4b: unexpected exception from provider → fallback (not 500)
+    # ------------------------------------------------------------------
+
+    def test_unexpected_provider_exception_fallback(self, caplog):
+        stub = _StubProvider(raises=RuntimeError("provider bug"))
+        today_task = _make_task(status="today")
+        engine = LLMRecommendationEngine(_provider=stub)
+
+        with caplog.at_level(logging.INFO, logger="app.services.recommendation_engine"):
+            result = engine.recommend(_ctx([today_task]))
+
+        assert len(result) > 0
+        assert "unexpected error" in caplog.text
+        assert "llm_request_failed" in caplog.text
+
+    # ------------------------------------------------------------------
+    # Test 5: invalid response (missing fields) → fallback
+    # ------------------------------------------------------------------
+
+    def test_invalid_response_fallback(self, caplog):
+        stub = _StubProvider(response={})  # no task_id, score, why
+        today_task = _make_task(status="today")
+        engine = LLMRecommendationEngine(_provider=stub)
+
+        with caplog.at_level(logging.INFO, logger="app.services.recommendation_engine"):
+            result = engine.recommend(_ctx([today_task]))
+
+        assert len(result) > 0
+        assert "invalid_response" in caplog.text
+
+    # ------------------------------------------------------------------
+    # Test 6: unknown task_id in response → fallback
+    # ------------------------------------------------------------------
+
+    def test_unknown_task_id_fallback(self, caplog):
+        stub = _StubProvider(response={
+            "task_id": "nonexistent-id-xyz",
+            "score": 80,
+            "why": "Great task.",
+        })
+        today_task = _make_task(status="today")
+        engine = LLMRecommendationEngine(_provider=stub)
+
+        with caplog.at_level(logging.INFO, logger="app.services.recommendation_engine"):
+            result = engine.recommend(_ctx([today_task]))
+
+        assert len(result) > 0
+        assert "unknown_task_id" in caplog.text
+
+    # ------------------------------------------------------------------
+    # Test 7: no today/week candidates → fallback
+    # ------------------------------------------------------------------
+
+    def test_empty_today_week_fallback(self, caplog):
+        stub = _StubProvider(response={"task_id": "x", "score": 90, "why": "Fine."})
+        backlog_task = _make_task(status="backlog")
+        engine = LLMRecommendationEngine(_provider=stub)
+
+        with caplog.at_level(logging.INFO, logger="app.services.recommendation_engine"):
+            result = engine.recommend(_ctx([backlog_task]))
+
+        assert len(result) > 0
+        assert result[0].task.id == backlog_task.id
+        assert "empty_candidate_set" in caplog.text
+
+    # ------------------------------------------------------------------
+    # Test 8: limit behaviour
+    # ------------------------------------------------------------------
+
+    def test_limit_behavior(self):
+        today_task_1 = _make_task(status="today")
+        today_task_2 = _make_task(status="today")
+        backlog_1 = _make_task(status="backlog")
+        backlog_2 = _make_task(status="backlog")
+        backlog_3 = _make_task(status="backlog")
+
+        stub = _StubProvider(response={
+            "task_id": today_task_1.id,
+            "score": 95,
+            "why": "Top priority task.",
+        })
+        engine = LLMRecommendationEngine(_provider=stub)
+        all_tasks = [today_task_1, today_task_2, backlog_1, backlog_2, backlog_3]
+        result = engine.recommend(_ctx(all_tasks, limit=3))
+
+        assert len(result) == 3
+        assert result[0].task.id == today_task_1.id
+        # No duplicate IDs
+        result_ids = [r.task.id for r in result]
+        assert len(result_ids) == len(set(result_ids))

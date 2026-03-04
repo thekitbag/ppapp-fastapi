@@ -188,7 +188,7 @@ class RecommendationContext:
 | Engine | Class | `NAME` | Behaviour |
 |---|---|---|---|
 | Algorithmic | `AlgorithmicRecommendationEngine` | `"algorithmic"` | Deterministic weighted-factor scorer (SUGGEST-002 model) |
-| LLM placeholder | `LLMRecommendationEngine` | `"llm_placeholder"` | Passes through algorithmic ranking; post-processes `why` text to narrative form. No external API called. |
+| LLM | `LLMRecommendationEngine` | `"llm"` | Calls OpenAI-compatible API for top pick; falls back to algorithmic on any failure (SUGGEST-004). |
 
 ### Strategy Selection
 
@@ -220,11 +220,66 @@ Logs contain task IDs and scores only — no task titles, user emails, or other 
 
 ### Extending for Real LLM Integration
 
-To wire a real LLM provider in a future ticket:
-1. Override `LLMRecommendationEngine.recommend()` to call the provider API.
-2. Pass `RecommendationContext` fields as prompt context.
-3. Map the LLM response back to `List[Ranked]`.
-4. No controller or schema changes required.
+Completed in SUGGEST-004 — see section below.
+
+---
+
+## LLM Engine — Real Integration (SUGGEST-004)
+
+### Environment Variables
+
+| Var | Default | Purpose |
+|---|---|---|
+| `USE_LLM_PRIORITIZATION` | `false` | Enable LLM engine |
+| `LLM_API_KEY` | — | Shared server API key (required; missing → algorithmic fallback) |
+| `LLM_MODEL` | `gpt-4.1-mini` | Model identifier |
+| `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
+| `LLM_TIMEOUT_SECONDS` | `8.0` | Per-request HTTP timeout |
+
+### LLM Candidate Set
+
+Statuses `today` and `week` only. If no such tasks exist, engine falls back to
+algorithmic ranking on the full candidate pool.
+
+### Context Schema
+
+```json
+{
+  "user_state": {"energy": "medium|null", "time_window": 60},
+  "tasks": [
+    {
+      "id": "...", "title": "...", "status": "today", "size": 2,
+      "energy": "low", "hard_due_at": null, "soft_due_at": null,
+      "project_id": null,
+      "linked_goals": [{"id": "...", "title": "...", "status": "on_target", "end_date": null, "type": "annual"}]
+    }
+  ],
+  "goals": [{"id": "...", "title": "...", "type": "annual", "status": "on_target", "end_date": null, "parent_goal_id": null}]
+}
+```
+
+### Expected LLM Response
+
+```json
+{"task_id": "<id from task list>", "score": 91, "why": "..."}
+```
+
+### Fallback Matrix
+
+| Condition | `fallback_reason` |
+|---|---|
+| `LLM_API_KEY` missing | `missing_api_key` |
+| No `today`/`week` candidates | `empty_candidate_set` |
+| Timeout / transport error / non-2xx | `llm_request_failed` |
+| Malformed JSON / missing fields | `invalid_response` |
+| Empty `why` after trim | `invalid_response` |
+| `task_id` not in candidate list | `unknown_task_id` |
+
+### Merge Strategy
+
+LLM selects one top task. Remaining slots (`limit-1`) are filled from algorithmic
+ranking of the full candidate pool, excluding the LLM-selected task.
+The LLM item carries: LLM score, LLM `why`, algorithmic `factors` (unchanged).
 
 ---
 
