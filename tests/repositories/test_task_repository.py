@@ -1,7 +1,7 @@
 import pytest
 from app.repositories.task import TaskRepository
 from app.schemas import TaskCreate
-from app.models import Task, Tag, User, ProviderEnum
+from app.models import Task, Tag, User, ProviderEnum, Goal, GoalTypeEnum
 from app.exceptions import NotFoundError
 
 
@@ -173,3 +173,47 @@ class TestTaskRepository:
         assert set(task_out.tags) == {"test", "sample"}
         assert task_out.created_at is not None
         assert task_out.updated_at is not None
+
+    def test_to_schema_includes_legacy_goal_id_in_goals(self, task_repo, test_db, sample_task_data, test_user):
+        """Legacy task.goal_id should still populate the goals summary for task cards."""
+        goal = Goal(
+            id="goal-legacy",
+            title="Legacy Weekly Goal",
+            type=GoalTypeEnum.weekly,
+            user_id=test_user.id,
+        )
+        test_db.add(goal)
+        test_db.commit()
+
+        data = sample_task_data.copy()
+        data["goal_id"] = goal.id
+        task = task_repo.create_with_tags(TaskCreate(**data), test_user.id)
+        test_db.commit()
+
+        task_out = task_repo.to_schema(task)
+
+        assert task_out.goal_id == goal.id
+        assert [g.id for g in task_out.goals] == [goal.id]
+        assert task_out.goals[0].title == "Legacy Weekly Goal"
+
+    def test_to_schema_batch_includes_legacy_goal_id_in_goals(self, task_repo, test_db, sample_task_data, test_user):
+        """List task serialization should include legacy task.goal_id goal summaries."""
+        goal = Goal(
+            id="goal-legacy-batch",
+            title="Legacy Batch Weekly Goal",
+            type=GoalTypeEnum.weekly,
+            user_id=test_user.id,
+        )
+        test_db.add(goal)
+        test_db.commit()
+
+        data = sample_task_data.copy()
+        data["goal_id"] = goal.id
+        task = task_repo.create_with_tags(TaskCreate(**data), test_user.id)
+        test_db.commit()
+
+        [task_out] = task_repo.to_schema_batch([task])
+
+        assert task_out.goal_id == goal.id
+        assert [g.id for g in task_out.goals] == [goal.id]
+        assert task_out.goals[0].title == "Legacy Batch Weekly Goal"

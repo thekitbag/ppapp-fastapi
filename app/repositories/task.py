@@ -281,6 +281,11 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
             task_goals_map[link.task_id].append(link.goal_id)
             goal_ids.add(link.goal_id)
         
+        for task in tasks:
+            if task.goal_id:
+                task_goals_map.setdefault(task.id, []).append(task.goal_id)
+                goal_ids.add(task.goal_id)
+
         # Batch fetch all goals for this user only
         goals_dict = {}
         if goal_ids:
@@ -293,7 +298,7 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
         # Build TaskOut objects
         result = []
         for task in tasks:
-            linked_goal_ids = task_goals_map.get(task.id, [])
+            linked_goal_ids = list(dict.fromkeys(task_goals_map.get(task.id, [])))
             linked_goals = [goals_dict[goal_id] for goal_id in linked_goal_ids if goal_id in goals_dict]
             
             result.append(TaskOut(
@@ -334,6 +339,17 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
                 Goal.id.in_(goal_ids),
                 Goal.user_id == task.user_id
             ).all()
+
+        goals_by_id = {goal.id: goal for goal in task_goals}
+        ordered_goal_ids = list(dict.fromkeys(goal_ids + ([task.goal_id] if task.goal_id else [])))
+        if task.goal_id and task.goal_id not in goals_by_id:
+            legacy_goal = self.db.query(Goal).filter(
+                Goal.id == task.goal_id,
+                Goal.user_id == task.user_id
+            ).first()
+            if legacy_goal:
+                goals_by_id[legacy_goal.id] = legacy_goal
+        task_goals = [goals_by_id[goal_id] for goal_id in ordered_goal_ids if goal_id in goals_by_id]
         
         # For backward compatibility, prioritize original goal_id if available
         if hasattr(task, '_original_goal_id') and task._original_goal_id:
