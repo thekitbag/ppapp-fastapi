@@ -99,14 +99,6 @@ async def microsoft_callback(
         token_data = await auth_svc.exchange_ms_code_for_token(code, state)
         user_info = token_data["user_info"]
         
-        # Validate user email against allowlist
-        if not auth_svc.validate_user_email(user_info):
-            logger.warning(f"User not authorized: {user_info.get('email')}")
-            return RedirectResponse(
-                url=f"{settings.app_base_url}?error=access_denied",
-                status_code=302
-            )
-        
         # Create session token with database upsert
         session_token = auth_svc.create_session_token_with_db(user_info)
         
@@ -209,14 +201,6 @@ async def google_callback(
         auth_svc = get_auth_service()
         token_data = await auth_svc.exchange_google_code_for_token(code, state)
         user_info = token_data["user_info"]
-        
-        # Validate user email against allowlist
-        if not auth_svc.validate_user_email(user_info):
-            logger.warning(f"User not authorized: {user_info.get('email')}")
-            return RedirectResponse(
-                url=f"{settings.app_base_url}?error=access_denied",
-                status_code=302
-            )
         
         # Create session token with database upsert
         session_token = auth_svc.create_session_token_with_db(user_info)
