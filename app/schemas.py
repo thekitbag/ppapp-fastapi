@@ -263,3 +263,53 @@ class BreakdownReportResponse(BaseModel):
     parent_id: Optional[str]
     total_impact: int
     breakdown: List[BreakdownRow]
+
+
+# ---------------------------------------------------------------------------
+# Trends reporting (REPORT-006)
+# ---------------------------------------------------------------------------
+
+TrendGranularity = Literal["day", "week", "month"]
+
+
+class TrendBucket(BaseModel):
+    """One time slot on the trend axis. Buckets are dense — zero-point slots included."""
+    bucket_start: datetime
+    bucket_end: datetime
+    label: str
+    points: int
+    task_count: int
+
+
+class TrendSeries(BaseModel):
+    """Points for one goal row across every bucket. `values` is index-aligned to `buckets`."""
+    goal_id: Optional[str]
+    goal_title: str
+    is_no_goal: bool
+    order_index: int
+    points: int
+    values: List[int]
+
+
+class TrendStats(BaseModel):
+    """Period aggregates. Always computed over UTC calendar days, whatever the granularity."""
+    total_points: int
+    task_count: int
+    days_in_period: int
+    active_days: int
+    avg_points_per_day: float
+    avg_points_per_active_day: float
+    avg_points_per_week: float
+    best_day: Optional[datetime] = None
+    best_day_points: int
+
+
+class TrendsReportResponse(BaseModel):
+    start_date: datetime
+    end_date: datetime
+    granularity: TrendGranularity
+    parent_id: Optional[str]
+    total_points: int
+    buckets: List[TrendBucket]
+    series: List[TrendSeries]
+    stats: TrendStats
