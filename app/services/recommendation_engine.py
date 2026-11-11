@@ -84,7 +84,7 @@ class AlgorithmicRecommendationEngine(RecommendationEngine):
             self.NAME, len(ctx.tasks), len(result), ctx.energy, ctx.time_window,
         )
         for r in result:
-            logger.debug("task_id=%s score=%.2f why=%r", r.task.id, r.score, r.why)
+            logger.debug("task_id=%s score=%.2f", r.task.id, r.score)
 
         return result
 
@@ -159,7 +159,7 @@ class LLMRecommendationEngine(RecommendationEngine):
             ctx.energy, ctx.time_window, reason,
         )
         for r in result:
-            logger.debug("task_id=%s score=%.2f why=%r", r.task.id, r.score, r.why)
+            logger.debug("task_id=%s score=%.2f", r.task.id, r.score)
 
         return result
 
@@ -206,7 +206,7 @@ class LLMRecommendationEngine(RecommendationEngine):
         except Exception:
             logger.warning(
                 "engine=%s unexpected error in provider.call; falling back",
-                self.NAME, exc_info=True,
+                self.NAME,
             )
             return self._fallback(ctx, "llm_request_failed")
 
@@ -263,7 +263,7 @@ class LLMRecommendationEngine(RecommendationEngine):
             self.NAME, len(ctx.tasks), len(result), ctx.energy, ctx.time_window,
         )
         for r in result:
-            logger.debug("task_id=%s score=%.2f why=%r", r.task.id, r.score, r.why)
+            logger.debug("task_id=%s score=%.2f", r.task.id, r.score)
 
         return result
 

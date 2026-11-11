@@ -144,6 +144,7 @@ class GoalRepository(BaseRepository[Goal, GoalCreate, dict]):
             id=goal.id,
             title=goal.title,
             description=goal.description,
+            plan_ref=goal.plan_ref,
             type=goal_type,
             parent_goal_id=goal.parent_goal_id,
             end_date=goal.end_date,

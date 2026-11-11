@@ -52,7 +52,7 @@ async def microsoft_login(request: Request, response: Response):
         return response
         
     except Exception as e:
-        logger.error(f"Failed to initiate Microsoft login: {e}")
+        logger.error('Failed to initiate Microsoft login')
         raise HTTPException(status_code=500, detail="Authentication initialization failed")
 
 
@@ -73,7 +73,7 @@ async def microsoft_callback(
             raise HTTPException(status_code=404, detail="Not found")
         # Check for OAuth errors
         if error:
-            logger.error(f"OAuth error: {error}")
+            logger.error('OAuth error')
             return RedirectResponse(
                 url=f"{settings.app_base_url}?error=authentication_failed",
                 status_code=302
@@ -89,7 +89,7 @@ async def microsoft_callback(
         
         # Validate state parameter
         if state != oauth_state:
-            logger.error(f"State mismatch: {state} != {oauth_state}")
+            logger.error('State mismatch')
             return RedirectResponse(
                 url=f"{settings.app_base_url}?error=invalid_state",
                 status_code=302
@@ -122,11 +122,11 @@ async def microsoft_callback(
             **cookie_settings
         )
         
-        logger.info(f"Successfully authenticated user: {user_info.get('email')}")
+        logger.info('Successfully authenticated user')
         return response
         
     except Exception as e:
-        logger.error(f"Authentication callback failed: {e}")
+        logger.error('Authentication callback failed')
         return RedirectResponse(
             url=f"{settings.app_base_url}?error=authentication_failed",
             status_code=302
@@ -158,7 +158,7 @@ async def google_login(request: Request, response: Response):
         return response
         
     except Exception as e:
-        logger.error(f"Failed to initiate Google login: {e}")
+        logger.error('Failed to initiate Google login')
         raise HTTPException(status_code=500, detail="Authentication initialization failed")
 
 
@@ -175,7 +175,7 @@ async def google_callback(
     try:
         # Check for OAuth errors
         if error:
-            logger.error(f"OAuth error: {error}")
+            logger.error('OAuth error')
             return RedirectResponse(
                 url=f"{settings.app_base_url}?error=authentication_failed",
                 status_code=302
@@ -191,7 +191,7 @@ async def google_callback(
         
         # Validate state parameter
         if state != oauth_state:
-            logger.error(f"State mismatch: {state} != {oauth_state}")
+            logger.error('State mismatch')
             return RedirectResponse(
                 url=f"{settings.app_base_url}?error=invalid_state",
                 status_code=302
@@ -225,11 +225,11 @@ async def google_callback(
             **cookie_settings
         )
         
-        logger.info(f"Successfully authenticated Google user: {user_info.get('email')}")
+        logger.info('Successfully authenticated Google user')
         return response
         
     except Exception as e:
-        logger.error(f"Google authentication callback failed: {e}")
+        logger.error('Google authentication callback failed')
         return RedirectResponse(
             url=f"{settings.app_base_url}?error=authentication_failed",
             status_code=302
@@ -276,7 +276,7 @@ async def dev_login(request: DevLoginRequest, response: Response):
             **cookie_settings
         )
         
-        logger.info(f"Dev login successful for: {request.email}")
+        logger.info('Dev login successful for')
         return {
             "status": "success",
             "message": "Development login successful",
@@ -284,7 +284,7 @@ async def dev_login(request: DevLoginRequest, response: Response):
         }
         
     except Exception as e:
-        logger.error(f"Dev login failed: {e}")
+        logger.error('Dev login failed')
         raise HTTPException(status_code=500, detail="Development login failed")
 
 

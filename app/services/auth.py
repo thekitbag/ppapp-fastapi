@@ -77,7 +77,7 @@ class AuthService:
         }
         
         auth_url = f"{self.ms_authorize_url}?" + urlencode(params)
-        logger.info(f"Generated Microsoft auth URL for state: {state}")
+        logger.info('Generated Microsoft auth URL for state')
         return auth_url, state
     
     def get_google_authorization_url(self, state: Optional[str] = None) -> tuple[str, str]:
@@ -98,7 +98,7 @@ class AuthService:
         }
         
         auth_url = f"{self.google_authorize_url}?" + urlencode(params)
-        logger.info(f"Generated Google auth URL for state: {state}")
+        logger.info('Generated Google auth URL for state')
         return auth_url, state
     
     async def exchange_ms_code_for_token(self, code: str, state: str) -> Dict[str, Any]:
@@ -136,14 +136,14 @@ class AuthService:
                     "name": user_info.get("name")
                 }
                 
-                logger.info(f"Successfully authenticated Microsoft user: {normalized_user['email']}")
+                logger.info('Successfully authenticated Microsoft user')
                 return {
                     "access_token": token_data.get("access_token"),
                     "user_info": normalized_user
                 }
                 
             except httpx.HTTPError as e:
-                logger.error(f"Failed to exchange Microsoft code for token: {e}")
+                logger.error('Failed to exchange Microsoft code for token')
                 raise ValidationError(f"Microsoft authentication failed: {str(e)}")
     
     async def exchange_google_code_for_token(self, code: str, state: str) -> Dict[str, Any]:
@@ -185,14 +185,14 @@ class AuthService:
                     "name": user_info.get("name")
                 }
                 
-                logger.info(f"Successfully authenticated Google user: {normalized_user['email']}")
+                logger.info('Successfully authenticated Google user')
                 return {
                     "access_token": access_token,
                     "user_info": normalized_user
                 }
                 
             except httpx.HTTPError as e:
-                logger.error(f"Failed to exchange Google code for token: {e}")
+                logger.error('Failed to exchange Google code for token')
                 raise ValidationError(f"Google authentication failed: {str(e)}")
     
     def validate_user_email(self, user_info: Dict[str, Any]) -> bool:
@@ -210,7 +210,7 @@ class AuthService:
         
         is_allowed = email in self.allowlist_emails
         if not is_allowed:
-            logger.warning(f"User email {email} not in allowlist")
+            logger.warning('User email')
         
         return is_allowed
     
@@ -249,7 +249,7 @@ class AuthService:
                 existing_user.email = user_info["email"]
                 existing_user.name = user_info["name"]
                 db.commit()
-                logger.info(f"Updated existing user: {existing_user.id}")
+                logger.info('Updated existing user')
                 return existing_user.id
             else:
                 # Create new user
@@ -262,7 +262,7 @@ class AuthService:
                 )
                 db.add(new_user)
                 db.commit()
-                logger.info(f"Created new user: {new_user.id}")
+                logger.info('Created new user')
                 return new_user.id
     
     def create_session_token_with_db(self, user_info: Dict[str, Any]) -> str:
@@ -401,7 +401,7 @@ class AuthService:
         except jwt.InvalidSignatureError:
             raise ValidationError("JWT token signature verification failed")
         except Exception as e:
-            logger.error(f"JWT verification failed: {str(e)}")
+            logger.error('JWT verification failed')
             raise ValidationError(f"JWT token verification failed: {str(e)}")
 
     @staticmethod

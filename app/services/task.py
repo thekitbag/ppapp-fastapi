@@ -25,7 +25,7 @@ class TaskService(BaseService):
             tuple[TaskOut, bool]: (task, was_created) where was_created is True for new tasks, False for idempotent returns
         """
         try:
-            self.logger.info(f"Creating task for user {user_id}: {task_in.title}")
+            self.logger.info('Creating task for user')
 
             if not task_in.title or not task_in.title.strip():
                 raise ValidationError("Task title cannot be empty")
@@ -46,7 +46,7 @@ class TaskService(BaseService):
                 ).scalar_one_or_none()
                 if existing_task:
                     was_created = False
-                    self.logger.info(f"Idempotent task request: returning existing task {existing_task.id}")
+                    self.logger.info('Idempotent task request: returning existing task')
                     return self.task_repo.to_schema(existing_task), was_created
 
             # Handle goal linking at creation time
@@ -77,12 +77,12 @@ class TaskService(BaseService):
 
             self.commit()
 
-            self.logger.info(f"Task created successfully: {task.id}")
+            self.logger.info('Task created successfully')
             return self.task_repo.to_schema(task), was_created
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to create task: {str(e)}")
+            self.logger.error('Failed to create task')
             raise
 
     def _link_task_to_goals(self, task_id: str, user_id: str, goal_ids: List[str]):
@@ -91,7 +91,7 @@ class TaskService(BaseService):
         import uuid
 
         try:
-            self.logger.info(f"Linking task {task_id} to {len(goal_ids)} goals")
+            self.logger.info('Linking task')
 
             # Verify all goals exist and belong to user
             goals = self.db.query(Goal).filter(Goal.id.in_(goal_ids), Goal.user_id == user_id).all()
@@ -121,17 +121,17 @@ class TaskService(BaseService):
                         user_id=user_id
                     )
                     self.db.add(link)
-                    self.logger.debug(f"Created link: task {task_id} -> goal {goal_id}")
+                    self.logger.debug('Created link: task')
 
             # Note: commit is handled by the calling method
 
         except Exception as e:
-            self.logger.error(f"Failed to link task {task_id} to goals: {str(e)}")
+            self.logger.error('Failed to link task')
             raise
     
     def get_task(self, task_id: str, user_id: str) -> TaskOut:
         """Get a task by ID for specific user."""
-        self.logger.debug(f"Fetching task {task_id} for user {user_id}")
+        self.logger.debug('Fetching task')
         
         task = self.task_repo.get_by_user(task_id, user_id)
         if not task:
@@ -174,19 +174,7 @@ class TaskService(BaseService):
             end_dt = datetime(due_date_end.year, due_date_end.month, due_date_end.day, 23, 59, 59, 999999)
 
         # Log filters (without PII beyond IDs)
-        self.logger.debug(
-            "Listing tasks | user=%s statuses=%s project=%s goal=%s tags_count=%s has_search=%s date_range=%s..%s skip=%s limit=%s",
-            user_id,
-            status,
-            project_id,
-            goal_id,
-            len(tags) if tags else 0,
-            bool(search),
-            start_dt.isoformat() if start_dt else None,
-            end_dt.isoformat() if end_dt else None,
-            skip,
-            limit,
-        )
+        self.logger.debug('Application operation debug')
 
         tasks = self.task_repo.get_filtered(
             user_id=user_id,
@@ -203,13 +191,13 @@ class TaskService(BaseService):
 
         result = self.task_repo.to_schema_batch(tasks)
 
-        self.logger.debug("List tasks result_count=%d", len(result))
+        self.logger.debug('Application operation debug')
         return result
     
     def update_task(self, task_id: str, user_id: str, update_data: Dict[str, Any]) -> TaskOut:
         """Update a task for specific user."""
         try:
-            self.logger.info(f"Updating task {task_id} for user {user_id}")
+            self.logger.info('Updating task')
 
             # Validate update data
             if "title" in update_data and not update_data["title"].strip():
@@ -228,18 +216,18 @@ class TaskService(BaseService):
 
             self.commit()
 
-            self.logger.info(f"Task updated successfully: {task_id}")
+            self.logger.info('Task updated successfully')
             return self.task_repo.to_schema(task)
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to update task {task_id}: {str(e)}")
+            self.logger.error('Failed to update task')
             raise
     
     def delete_task(self, task_id: str, user_id: str) -> bool:
         """Delete a task for specific user."""
         try:
-            self.logger.info(f"Deleting task {task_id} for user {user_id}")
+            self.logger.info('Deleting task')
             
             if not self.task_repo.get_by_user(task_id, user_id):
                 raise NotFoundError("Task", task_id)
@@ -247,18 +235,18 @@ class TaskService(BaseService):
             deleted = self.task_repo.delete_by_user(task_id, user_id)
             self.commit()
             
-            self.logger.info(f"Task deleted successfully: {task_id}")
+            self.logger.info('Task deleted successfully')
             return deleted
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to delete task {task_id}: {str(e)}")
+            self.logger.error('Failed to delete task')
             raise
     
     def promote_tasks_to_week(self, task_ids: List[str], user_id: str) -> List[str]:
         """Promote multiple tasks to week status for specific user."""
         try:
-            self.logger.info(f"Promoting {len(task_ids)} tasks to week status for user {user_id}")
+            self.logger.info('Promoting')
             
             updated_ids = []
             for task_id in task_ids:
@@ -272,12 +260,12 @@ class TaskService(BaseService):
                     updated_ids.append(task_id)
             
             self.commit()
-            self.logger.info(f"Successfully promoted {len(updated_ids)} tasks to week")
+            self.logger.info('Successfully promoted')
             return updated_ids
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to promote tasks to week: {str(e)}")
+            self.logger.error('Failed to promote tasks to week')
             raise
     
     def validate_cross_user_resources(self, user_id: str, task_id: str = None, goal_id: str = None, project_id: str = None) -> bool:
@@ -305,23 +293,23 @@ class TaskService(BaseService):
     def reindex_tasks(self, user_id: str, status: str) -> int:
         """Reindex sort_order values for tasks in a status bucket."""
         try:
-            self.logger.info(f"Reindexing tasks for user {user_id} in status {status}")
+            self.logger.info('Reindexing tasks for user')
 
             count = self.task_repo.reindex_sort_order(user_id, status)
             self.commit()
 
-            self.logger.info(f"Reindexed {count} tasks in status {status}")
+            self.logger.info('Reindexed')
             return count
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to reindex tasks: {str(e)}")
+            self.logger.error('Failed to reindex tasks')
             raise
 
     def link_task_to_goal(self, task_id: str, goal_id: str, user_id: str, weight: float = None) -> bool:
         """Link a task to a goal with cross-user validation."""
         try:
-            self.logger.info(f"Linking task {task_id} to goal {goal_id} for user {user_id}")
+            self.logger.info('Linking task')
 
             # Validate both resources belong to the same user
             self.validate_cross_user_resources(user_id, task_id=task_id, goal_id=goal_id)
@@ -337,7 +325,7 @@ class TaskService(BaseService):
             ).first()
 
             if existing_link:
-                self.logger.warning(f"Task-goal link already exists: {task_id} -> {goal_id}")
+                self.logger.warning('Task-goal link already exists')
                 return False
 
             # Create new link
@@ -352,10 +340,10 @@ class TaskService(BaseService):
             self.db.add(task_goal)
             self.commit()
 
-            self.logger.info(f"Successfully linked task to goal: {task_id} -> {goal_id}")
+            self.logger.info('Successfully linked task to goal')
             return True
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to link task to goal: {str(e)}")
+            self.logger.error('Failed to link task to goal')
             raise

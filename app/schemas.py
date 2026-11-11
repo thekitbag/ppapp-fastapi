@@ -29,7 +29,16 @@ class Project(ProjectBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-class GoalBase(BaseModel):
+class PlanRefFields(BaseModel):
+    plan_ref: Optional[str] = None
+
+    @field_validator("plan_ref")
+    @classmethod
+    def normalize_plan_ref(cls, value):
+        return value.strip() or None if value is not None else None
+
+
+class GoalBase(PlanRefFields):
     title: str
     description: Optional[str] = None
     type: Optional[GoalType] = None
@@ -41,7 +50,7 @@ class GoalCreate(GoalBase):
     status: Optional[GoalStatus] = "on_target"
     priority: Optional[float] = 0.0
 
-class GoalUpdate(BaseModel):
+class GoalUpdate(PlanRefFields):
     title: Optional[str] = None
     description: Optional[str] = None
     type: Optional[GoalType] = None

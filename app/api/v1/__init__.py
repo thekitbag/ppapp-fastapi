@@ -1,7 +1,9 @@
 from fastapi import APIRouter
 from . import tasks, projects, goals, health, recommendations, imports, auth, reports
+from . import tokens
 
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(tokens.router, prefix="/tokens", tags=["tokens"])
 
 # Clean service-based routers
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])

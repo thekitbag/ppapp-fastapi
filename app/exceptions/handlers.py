@@ -9,15 +9,7 @@ logger = get_logger(__name__)
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     """Handle application exceptions."""
     
-    logger.error(
-        f"Application exception: {exc.message}",
-        extra={
-            "status_code": exc.status_code,
-            "details": exc.details,
-            "path": request.url.path,
-            "method": request.method
-        }
-    )
+    logger.error('Application exception')
     
     return JSONResponse(
         status_code=exc.status_code,
@@ -33,13 +25,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle general exceptions."""
     
-    logger.exception(
-        f"Unhandled exception: {str(exc)}",
-        extra={
-            "path": request.url.path,
-            "method": request.method
-        }
-    )
+    logger.error('Unhandled exception')
     
     return JSONResponse(
         status_code=500,

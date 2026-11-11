@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.repositories import GoalRepository
 from app.schemas import GoalCreate, Goal as GoalSchema, GoalDetail, KROut, KRCreate, TaskGoalLink, TaskGoalLinkResponse, GoalNode, GoalOut
-from app.exceptions import NotFoundError, ValidationError
+from app.exceptions import NotFoundError, ValidationError, ConflictError
+from sqlalchemy.exc import IntegrityError
 from .base import BaseService
 
 
@@ -17,7 +18,7 @@ class GoalService(BaseService):
     def create_goal(self, goal_in: GoalCreate, user_id: str) -> GoalSchema:
         """Create a new goal with hierarchy validation."""
         try:
-            self.logger.info(f"Creating goal: {goal_in.title}")
+            self.logger.info('Creating goal')
             
             if not goal_in.title or not goal_in.title.strip():
                 raise ValidationError("Goal title cannot be empty")
@@ -25,20 +26,26 @@ class GoalService(BaseService):
             # Goals v2: Validate hierarchy rules
             self._validate_goal_hierarchy(goal_in.type, goal_in.parent_goal_id, user_id)
             
+            self._check_plan_ref(goal_in.plan_ref, user_id)
             goal = self.goal_repo.create_with_id(goal_in, user_id)
             self.commit()
             
-            self.logger.info(f"Goal created successfully: {goal.id}")
+            self.logger.info('Goal created successfully')
             return self.goal_repo.to_schema(goal)
             
+        except IntegrityError as e:
+            self.rollback()
+            if "uq_goals_user_plan_ref" in str(e.orig) or "goals.user_id, goals.plan_ref" in str(e.orig):
+                raise ConflictError("Goal plan_ref already exists for this user") from None
+            raise
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to create goal: {str(e)}")
+            self.logger.error('Failed to create goal')
             raise
     
     def get_goal(self, goal_id: str, user_id: str) -> GoalSchema:
         """Get a goal by ID."""
-        self.logger.debug(f"Fetching goal: {goal_id}")
+        self.logger.debug('Fetching goal')
         
         goal = self.goal_repo.get_by_user(goal_id, user_id)
         if not goal:
@@ -48,7 +55,7 @@ class GoalService(BaseService):
     
     def list_goals(self, user_id: str, skip: int = 0, limit: int = 100, is_closed: bool = None, include_archived: bool = False) -> List[GoalSchema]:
         """List goals with optional is_closed filter and archive exclusion."""
-        self.logger.debug(f"Listing goals (is_closed={is_closed}, include_archived={include_archived})")
+        self.logger.debug('Listing goals (is_closed')
 
         if limit > 1000:
             raise ValidationError("Limit cannot exceed 1000")
@@ -65,7 +72,7 @@ class GoalService(BaseService):
     def update_goal(self, goal_id: str, user_id: str, goal_update: dict) -> GoalSchema:
         """Update a goal with hierarchy validation."""
         try:
-            self.logger.info(f"Updating goal: {goal_id}")
+            self.logger.info('Updating goal')
             
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
@@ -83,6 +90,9 @@ class GoalService(BaseService):
                 if self._would_create_cycle(goal_id, new_parent_id):
                     raise ValidationError("Cannot set parent: would create a cycle in the goal hierarchy")
             
+            if "plan_ref" in goal_update:
+                self._check_plan_ref(goal_update["plan_ref"], user_id, goal_id)
+
             # Update goal attributes
             for field, value in goal_update.items():
                 if hasattr(goal, field):
@@ -91,18 +101,23 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
             
-            self.logger.info(f"Goal updated successfully: {goal_id}")
+            self.logger.info('Goal updated successfully')
             return self.goal_repo.to_schema(goal)
             
+        except IntegrityError as e:
+            self.rollback()
+            if "uq_goals_user_plan_ref" in str(e.orig) or "goals.user_id, goals.plan_ref" in str(e.orig):
+                raise ConflictError("Goal plan_ref already exists for this user") from None
+            raise
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to update goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to update goal')
             raise
     
     def delete_goal(self, goal_id: str, user_id: str) -> bool:
         """Delete a goal."""
         try:
-            self.logger.info(f"Deleting goal: {goal_id}")
+            self.logger.info('Deleting goal')
             
             if not self.goal_repo.get_by_user(goal_id, user_id):
                 raise NotFoundError("Goal", goal_id)
@@ -110,12 +125,12 @@ class GoalService(BaseService):
             deleted = self.goal_repo.delete_by_user(goal_id, user_id)
             self.commit()
             
-            self.logger.info(f"Goal deleted successfully: {goal_id}")
+            self.logger.info('Goal deleted successfully')
             return deleted
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to delete goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to delete goal')
             raise
     
     def get_goal_detail(self, goal_id: str, user_id: str) -> GoalDetail:
@@ -123,7 +138,7 @@ class GoalService(BaseService):
         from app.models import Goal, GoalKR, TaskGoal, Task
         from app.schemas import GoalSummary, TaskOut
         
-        self.logger.debug(f"Fetching goal detail: {goal_id}")
+        self.logger.debug('Fetching goal detail')
         
         # Get goal
         goal = self.goal_repo.get_by_user(goal_id, user_id)
@@ -209,6 +224,7 @@ class GoalService(BaseService):
             id=goal.id,
             title=goal.title,
             description=goal.description,
+            plan_ref=goal.plan_ref,
             type=goal_type,
             created_at=goal.created_at,
             key_results=[KROut(
@@ -229,7 +245,7 @@ class GoalService(BaseService):
         import uuid
         
         try:
-            self.logger.info(f"Creating key result for goal: {goal_id}")
+            self.logger.info('Creating key result for goal')
             
             # Verify goal exists
             if not self.goal_repo.get_by_user(goal_id, user_id):
@@ -248,7 +264,7 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(db_kr)
             
-            self.logger.info(f"Key result created successfully: {db_kr.id}")
+            self.logger.info('Key result created successfully')
             
             return KROut(
                 id=db_kr.id,
@@ -262,7 +278,7 @@ class GoalService(BaseService):
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to create key result for goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to create key result for goal')
             raise
     
     def delete_key_result(self, goal_id: str, user_id: str, kr_id: str) -> bool:
@@ -270,7 +286,7 @@ class GoalService(BaseService):
         from app.models import GoalKR
         
         try:
-            self.logger.info(f"Deleting key result: {kr_id}")
+            self.logger.info('Deleting key result')
             
             # Verify goal exists
             if not self.goal_repo.get_by_user(goal_id, user_id):
@@ -288,12 +304,12 @@ class GoalService(BaseService):
             self.db.delete(db_kr)
             self.commit()
             
-            self.logger.info(f"Key result deleted successfully: {kr_id}")
+            self.logger.info('Key result deleted successfully')
             return True
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to delete key result {kr_id}: {str(e)}")
+            self.logger.error('Failed to delete key result')
             raise
     
     def link_tasks_to_goal(self, goal_id: str, user_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
@@ -302,7 +318,7 @@ class GoalService(BaseService):
         import uuid
 
         try:
-            self.logger.info(f"Linking {len(link_data.task_ids)} tasks to goal: {goal_id}")
+            self.logger.info('Linking')
 
             # Verify goal exists
             goal = self.goal_repo.get_by_user(goal_id, user_id)
@@ -342,7 +358,7 @@ class GoalService(BaseService):
             
             self.commit()
             
-            self.logger.info(f"Successfully linked {len(linked)} tasks to goal {goal_id}")
+            self.logger.info('Successfully linked')
             
             return TaskGoalLinkResponse(
                 linked=linked,
@@ -351,7 +367,7 @@ class GoalService(BaseService):
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to link tasks to goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to link tasks to goal')
             raise
     
     def unlink_tasks_from_goal(self, goal_id: str, user_id: str, link_data: TaskGoalLink) -> TaskGoalLinkResponse:
@@ -359,7 +375,7 @@ class GoalService(BaseService):
         from app.models import TaskGoal
         
         try:
-            self.logger.info(f"Unlinking {len(link_data.task_ids)} tasks from goal: {goal_id}")
+            self.logger.info('Unlinking')
             
             # Verify goal exists
             if not self.goal_repo.get_by_user(goal_id, user_id):
@@ -381,7 +397,7 @@ class GoalService(BaseService):
             
             self.commit()
             
-            self.logger.info(f"Successfully unlinked {len(unlinked)} tasks from goal {goal_id}")
+            self.logger.info('Successfully unlinked')
             
             return TaskGoalLinkResponse(
                 linked=unlinked,  # Actually unlinked
@@ -390,7 +406,7 @@ class GoalService(BaseService):
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to unlink tasks from goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to unlink tasks from goal')
             raise
     
     # Goals v2: Hierarchy and validation methods
@@ -444,7 +460,7 @@ class GoalService(BaseService):
     def get_goals_tree(self, user_id: str, include_tasks: bool = False, include_closed: bool = False, include_archived: bool = False) -> List[GoalNode]:
         """Get hierarchical tree of goals (Annual → Quarterly → Weekly)."""
         try:
-            self.logger.debug(f"Building goals tree (include_closed={include_closed}, include_archived={include_archived})")
+            self.logger.debug('Building goals tree (include_closed')
             from app.models import Goal
 
             # Get goals for this user with optional closed and archived filters
@@ -491,6 +507,9 @@ class GoalService(BaseService):
                     "id": goal.id,
                     "title": goal.title,
                     "description": goal.description,
+                    "plan_ref": goal.plan_ref,
+                    "priority": goal.priority,
+                    "is_archived": goal.is_archived,
                     "type": goal.type.value if goal.type else None,
                     "parent_goal_id": goal.parent_goal_id,
                     "end_date": goal.end_date,
@@ -516,17 +535,17 @@ class GoalService(BaseService):
             root_goals_sorted = sorted(root_goals, key=lambda g: (-g.priority, g.end_date or g.created_at, g.created_at))
             tree = [build_tree_node(goal) for goal in root_goals_sorted]
             
-            self.logger.debug(f"Built goals tree with {len(tree)} root nodes")
+            self.logger.debug('Built goals tree with')
             return tree
             
         except Exception as e:
-            self.logger.error(f"Failed to build goals tree: {str(e)}")
+            self.logger.error('Failed to build goals tree')
             raise
     
     def get_goals_by_type(self, user_id: str, goal_type: str, parent_id: str = None, include_archived: bool = False) -> List[GoalOut]:
         """Get goals filtered by type and optionally by parent, excluding archived goals by default."""
         try:
-            self.logger.debug(f"Getting goals by type: {goal_type}, parent: {parent_id}, include_archived: {include_archived}")
+            self.logger.debug('Getting goals by type')
             try:
                 goals = self.goal_repo.list_goals_by_type(
                     user_id,
@@ -540,13 +559,13 @@ class GoalService(BaseService):
             return [self.goal_repo.to_schema(goal) for goal in goals]
             
         except Exception as e:
-            self.logger.error(f"Failed to get goals by type {goal_type}: {str(e)}")
+            self.logger.error('Failed to get goals by type')
             raise
 
     def close_goal(self, goal_id: str, user_id: str) -> GoalSchema:
         """Close a goal and its descendants by setting is_closed=True and closed_at=now."""
         try:
-            self.logger.info(f"Closing goal: {goal_id}")
+            self.logger.info('Closing goal')
 
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
@@ -574,18 +593,18 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal and descendants closed successfully: {goal_id}")
+            self.logger.info('Goal and descendants closed successfully')
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to close goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to close goal')
             raise
 
     def reopen_goal(self, goal_id: str, user_id: str) -> GoalSchema:
         """Reopen a goal by setting is_closed=False and closed_at=NULL."""
         try:
-            self.logger.info(f"Reopening goal: {goal_id}")
+            self.logger.info('Reopening goal')
 
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
@@ -593,7 +612,7 @@ class GoalService(BaseService):
 
             # Idempotent: if already open, return current state
             if not goal.is_closed:
-                self.logger.info(f"Goal {goal_id} already open")
+                self.logger.info('Goal')
                 return self.goal_repo.to_schema(goal)
 
             # Reopen the goal
@@ -603,18 +622,18 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal reopened successfully: {goal_id}")
+            self.logger.info('Goal reopened successfully')
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to reopen goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to reopen goal')
             raise
 
     def archive_goal(self, goal_id: str, user_id: str) -> GoalSchema:
         """Archive a goal by setting is_archived=True."""
         try:
-            self.logger.info(f"Archiving goal: {goal_id}")
+            self.logger.info('Archiving goal')
 
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
@@ -622,7 +641,7 @@ class GoalService(BaseService):
 
             # Idempotent: if already archived, return current state
             if goal.is_archived:
-                self.logger.info(f"Goal {goal_id} already archived")
+                self.logger.info('Goal')
                 return self.goal_repo.to_schema(goal)
 
             # Archive the goal
@@ -631,18 +650,18 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal archived successfully: {goal_id}")
+            self.logger.info('Goal archived successfully')
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to archive goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to archive goal')
             raise
 
     def unarchive_goal(self, goal_id: str, user_id: str) -> GoalSchema:
         """Unarchive a goal by setting is_archived=False."""
         try:
-            self.logger.info(f"Unarchiving goal: {goal_id}")
+            self.logger.info('Unarchiving goal')
 
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
@@ -650,7 +669,7 @@ class GoalService(BaseService):
 
             # Idempotent: if already unarchived, return current state
             if not goal.is_archived:
-                self.logger.info(f"Goal {goal_id} already unarchived")
+                self.logger.info('Goal')
                 return self.goal_repo.to_schema(goal)
 
             # Unarchive the goal
@@ -659,18 +678,18 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal unarchived successfully: {goal_id}")
+            self.logger.info('Goal unarchived successfully')
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to unarchive goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to unarchive goal')
             raise
 
     def update_goal_priority(self, goal_id: str, user_id: str, new_priority: float) -> GoalSchema:
         """Update a goal's priority value. Higher values = higher priority (displayed first)."""
         try:
-            self.logger.info(f"Updating priority for goal {goal_id} to {new_priority}")
+            self.logger.info('Updating priority for goal')
 
             goal = self.goal_repo.get_by_user(goal_id, user_id)
             if not goal:
@@ -682,12 +701,12 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal priority updated successfully: {goal_id}")
+            self.logger.info('Goal priority updated successfully')
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to update priority for goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to update priority for goal')
             raise
 
     def reorder_goal(self, goal_id: str, user_id: str, direction: str) -> GoalSchema:
@@ -702,7 +721,7 @@ class GoalService(BaseService):
             direction: "up" or "down"
         """
         try:
-            self.logger.info(f"Reordering goal {goal_id} {direction}")
+            self.logger.info('Reordering goal')
 
             from app.models import Goal
 
@@ -731,7 +750,7 @@ class GoalService(BaseService):
 
             # Guard: out of bounds check
             if neighbor_index < 0 or neighbor_index >= len(siblings):
-                self.logger.info(f"Goal {goal_id} already at {direction}most position")
+                self.logger.info('Goal')
                 return self.goal_repo.to_schema(goal)
 
             # Check for priority collisions in the sibling list
@@ -740,7 +759,7 @@ class GoalService(BaseService):
 
             if has_collisions:
                 # Self-healing: Re-index entire sibling list with spacing of 10
-                self.logger.info(f"Detected priority collisions, re-indexing {len(siblings)} siblings")
+                self.logger.info('Detected priority collisions, re-indexing')
 
                 # Calculate base priority (start high, go down by 10 each)
                 base_priority = len(siblings) * 10
@@ -780,10 +799,20 @@ class GoalService(BaseService):
             self.commit()
             self.db.refresh(goal)
 
-            self.logger.info(f"Goal reordered successfully: {goal_id}")
+            self.logger.info('Goal reordered successfully')
             return self.goal_repo.to_schema(goal)
 
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to reorder goal {goal_id}: {str(e)}")
+            self.logger.error('Failed to reorder goal')
             raise
+
+    def _check_plan_ref(self, plan_ref, user_id, exclude_id=None):
+        if plan_ref is None:
+            return
+        from app.models import Goal
+        query = self.db.query(Goal).filter(Goal.user_id == user_id, Goal.plan_ref == plan_ref)
+        if exclude_id:
+            query = query.filter(Goal.id != exclude_id)
+        if query.first():
+            raise ConflictError("Goal plan_ref already exists for this user")
