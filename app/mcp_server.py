@@ -52,6 +52,7 @@ NullableText = Annotated[str, PlainValidator(nullable_text, json_schema_input_ty
 PatchText = Annotated[str, PlainValidator(nullable_text, json_schema_input_type=str | None), Field(default_factory=omitted)]
 PatchDate = Annotated[datetime | None, Field(default_factory=omitted)]
 PatchStatus = Annotated[Status | None, Field(default_factory=omitted)]
+PatchSize = Annotated[int | None, Field(default_factory=omitted)]
 PatchGoalStatus = Annotated[GoalStatus | None, Field(default_factory=omitted)]
 PatchList = Annotated[list[str], Field(default_factory=omitted)]
 
@@ -206,7 +207,8 @@ def create_mcp(owner):
         return await call('suggest_week', limit=limit)
 
     @tool('Create a task, defaulting to backlog. goals accepts IDs or plan_refs; tags are names created if missing. '
-          'project accepts an owned ID or unique exact name. Returns the same task shape as list_tasks.', write=True)
+          'project accepts an owned ID or unique exact name. Size is story points: 1, 2, 3, 5, 8, 13 or 21. '
+          'Returns the same task shape as list_tasks.', write=True)
     async def create_task(title: str, description: NullableText = None, goals: list[str] | None = None,
                           tags: list[str] | None = None, status: Status = 'backlog',
                           soft_due_at: datetime | None = None, hard_due_at: datetime | None = None,
@@ -216,12 +218,14 @@ def create_mcp(owner):
                           size=size, project=project)
 
     @tool('Partially update an owned task and its tag/goal links atomically. Omitted fields are unchanged; '
-          'null clears description or due dates. add_goals/remove_goals accept IDs or plan_refs. '
+          'null clears description, due dates or size. Size is story points: 1, 2, 3, 5, 8, 13 or 21. '
+          'add_goals/remove_goals accept IDs or plan_refs. '
           'status=done sets completed_at through the existing task service; other statuses clear it.', write=True)
     async def update_task(task_id: str, title: PatchText, description: PatchText, status: PatchStatus,
+                          size: PatchSize,
                           add_tags: PatchList, remove_tags: PatchList, add_goals: PatchList, remove_goals: PatchList,
                           soft_due_at: PatchDate, hard_due_at: PatchDate) -> dict[str, Any]:
-        values = dict(title=title, description=description, status=status, add_tags=add_tags,
+        values = dict(title=title, description=description, status=status, size=size, add_tags=add_tags,
                       remove_tags=remove_tags, add_goals=add_goals, remove_goals=remove_goals,
                       soft_due_at=soft_due_at, hard_due_at=hard_due_at)
         changes = {key: value for key, value in values.items() if value is not UNSET}
