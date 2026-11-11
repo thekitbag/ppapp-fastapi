@@ -1,6 +1,6 @@
 # MCP milestone 2 handover
 
-M2 is implemented locally on **`feat/mcp-write-tools`** in both repositories. **Nothing has been pushed or deployed. Production remains on M1**, and its token/configuration is unchanged.
+M2 is implemented on **`feat/mcp-write-tools`** in both repositories and is being submitted for PR review. **It has not been merged or deployed. Production remains on M1**, and its token/configuration is unchanged.
 
 ## Implemented
 
