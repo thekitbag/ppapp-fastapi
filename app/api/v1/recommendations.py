@@ -4,11 +4,10 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 
 from app.db import get_db
-from app import models, schemas
+from app import schemas
 from app.api.v1.auth import get_current_user_dep
-from app.repositories import TaskRepository
-from app.services.recommendations import suggest_week
-from app.services.recommendation_engine import RecommendationContext, get_recommendation_engine
+from app.services.recommendation_service import RecommendationService
+from app.services.recommendation_engine import get_recommendation_engine
 from app.core.config import settings
 
 router = APIRouter()
@@ -43,39 +42,7 @@ def next_recommendations(
     engine=Depends(_get_engine),
 ):
     """Get next task recommendations with optional energy and time_window filtering."""
-    user_id = current_user["user_id"]
-    tasks: List[models.Task] = (
-        db.query(models.Task)
-        .filter(models.Task.user_id == user_id)
-        .filter(models.Task.status.in_(['backlog', 'doing', 'today', 'week']))
-        .all()
-    )
-
-    ctx = RecommendationContext(
-        tasks=tasks,
-        db=db,
-        energy=query.energy,
-        time_window=query.time_window,
-        limit=query.limit,
-    )
-    ranked = engine.recommend(ctx)
-
-    task_repo = TaskRepository(db)
-    task_out_by_id = {
-        task.id: task_out for task, task_out in zip(tasks, task_repo.to_schema_batch(tasks))
-    }
-
-    items: List[schemas.RecommendationItem] = [
-        schemas.RecommendationItem(
-            task=task_out_by_id[r.task.id],
-            score=r.score,
-            factors=r.factors,
-            why=r.why,
-        )
-        for r in ranked
-    ]
-
-    return schemas.RecommendationResponse(items=items)
+    return RecommendationService(db).next(current_user["user_id"], query, engine)
 
 
 class SuggestWeekBody(BaseModel):
@@ -89,21 +56,4 @@ def suggest_week_api(
     db: Session = Depends(get_db),
 ):
     """Get week suggestions."""
-    user_id = current_user["user_id"]
-    tasks: List[models.Task] = (
-        db.query(models.Task)
-        .filter(models.Task.user_id == user_id)
-        .filter(models.Task.status.in_(['backlog']))
-        .all()
-    )
-    ranked = suggest_week(tasks, db=db, limit=body.limit)
-
-    task_repo = TaskRepository(db)
-    task_out_by_id = {
-        task.id: task_out for task, task_out in zip(tasks, task_repo.to_schema_batch(tasks))
-    }
-    items = [
-        schemas.RecommendationItem(task=task_out_by_id[r.task.id], score=r.score, factors=r.factors, why=r.why)
-        for r in ranked
-    ]
-    return schemas.RecommendationResponse(items=items)
+    return RecommendationService(db).suggest_week(current_user["user_id"], body.limit)
