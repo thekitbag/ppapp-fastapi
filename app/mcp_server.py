@@ -1,4 +1,4 @@
-"""PAT-only, stateless MCP adapter. Milestone 1 exposes read tools only."""
+"""PAT-only, stateless MCP adapter. Read and write tools share owned services and atomic operations."""
 import inspect
 import logging
 import time
@@ -12,8 +12,9 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations, CallToolResult, TextContent
-from pydantic import Field
+from mcp.types import ToolAnnotations, CallToolResult
+from pydantic import Field, PlainValidator, ValidationError as InputValidationError
+from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
@@ -22,10 +23,37 @@ from app.db import get_db
 from app.exceptions import AppException
 from app.services.tokens import TokenService, require_scope
 from app.services.mcp_read import MCPReadService
-from app.schemas import GoalType, Status
+from app.services.mcp_write import MCPWriteService
+from app.mcp_schemas import BatchGoal, BatchTask
+from app.schemas import GoalType, GoalStatus, Status
 
 logger = logging.getLogger(__name__)
 identity_context = ContextVar('mcp_identity', default=None)
+WRITE_TOOLS = {'create_task', 'update_task', 'create_goal', 'update_goal', 'bulk_create'}
+UNSET = object()
+
+
+def omitted():
+    return UNSET
+
+
+def nullable_text(value):
+    if value is not None and not isinstance(value, str):
+        raise ValueError('Expected text or null')
+    return value
+
+
+# Keep the underlying annotation `str`: the SDK otherwise JSON-parses strings
+# in Optional[str] fields (e.g. the literal "null" becomes None). The validator
+# and its input schema still accept actual JSON null without parsing text.
+NullableText = Annotated[str, PlainValidator(nullable_text, json_schema_input_type=str | None)]
+# Pydantic factories preserve omission separately from an explicit JSON null.
+# The SDK passes every validated argument, so ordinary None defaults lose that distinction.
+PatchText = Annotated[str, PlainValidator(nullable_text, json_schema_input_type=str | None), Field(default_factory=omitted)]
+PatchDate = Annotated[datetime | None, Field(default_factory=omitted)]
+PatchStatus = Annotated[Status | None, Field(default_factory=omitted)]
+PatchGoalStatus = Annotated[GoalStatus | None, Field(default_factory=omitted)]
+PatchList = Annotated[list[str], Field(default_factory=omitted)]
 
 
 class RateLimiter:
@@ -49,8 +77,10 @@ class RateLimiter:
 
 def create_mcp(owner):
     mcp = FastMCP('Eigentask', stateless_http=True, json_response=True,
-        instructions='Read-only Eigentask tools. Goals cascade annual → quarterly → weekly. '
-                     'Prefer plan_ref over opaque goal IDs. No write tools are available in milestone 1.',
+        instructions='Eigentask goals cascade annual → quarterly → weekly. Prefer plan_ref over IDs. '
+                     'Read tools require read scope; writes and bulk previews require write scope. '
+                     'Before bulk_create commit, call dry_run=true and show the resolved preview to the user for approval. '
+                     'After approval, submit the same batch with dry_run=false. No delete tools are available.',
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=True,
             allowed_hosts=['api.eigentask.co.uk', 'localhost:*', '127.0.0.1:*'],
             allowed_origins=['https://api.eigentask.co.uk', 'http://localhost:*', 'http://127.0.0.1:*']))
@@ -60,10 +90,11 @@ def create_mcp(owner):
     sdk_logger.propagate = False
     limiter = RateLimiter()
 
-    def failure(code, message):
-        return CallToolResult(isError=True,
-            content=[TextContent(type='text', text=message)],
-            structuredContent={'error': {'code': code, 'message': message}})
+    def failure(code, message, details=None):
+        error = {'code': code, 'message': message}
+        if details:
+            error['details'] = details
+        return CallToolResult(isError=True, content=[], structuredContent={'error': error})
 
     def with_db(callback):
         provider = owner.dependency_overrides.get(get_db, get_db)
@@ -81,32 +112,47 @@ def create_mcp(owner):
         started = time.monotonic()
         outcome = 'ok'
         try:
-            require_scope(identity, 'read')
+            write = name in WRITE_TOOLS
+            require_scope(identity, 'write' if write else 'read')
             if not limiter.allow(identity['token_id']):
                 outcome = 'rate_limited'
                 return failure('rate_limited', '120 tool calls per minute exceeded; retry after 60 seconds')
-            return await run_in_threadpool(with_db, lambda db: jsonable_encoder(
-                getattr(MCPReadService(db, identity['user_id']), name)(**arguments)))
+            service = MCPWriteService if write else MCPReadService
+            data = await run_in_threadpool(with_db, lambda db: jsonable_encoder(
+                getattr(service(db, identity['user_id']), name)(**arguments)))
+            invalid = name == 'bulk_create' and not data['valid']
+            if invalid:
+                outcome = 'invalid_request'
+            return CallToolResult(content=[], structuredContent=data, isError=invalid)
         except HTTPException as exc:
             outcome = 'forbidden'
             return failure('forbidden', exc.detail)
+        except InputValidationError as exc:
+            outcome = 'invalid_request'
+            details = [{'path': '.'.join(map(str, item['loc'])), 'message': item['msg']}
+                       for item in exc.errors(include_input=False, include_url=False)]
+            return failure('invalid_request', 'Invalid tool arguments', details)
+        except IntegrityError:
+            outcome = 'conflict'
+            return failure('conflict', 'A duplicate or concurrent reference change prevented this operation; refresh before retrying')
         except AppException as exc:
             outcome = 'invalid_request'
             return failure('invalid_request', exc.message)
         except Exception:
             outcome = 'failed'
-            return failure('internal_error', 'Eigentask could not complete this read; try again')
+            return failure('internal_error', 'Eigentask could not complete this operation. Read current state before retrying a write.')
         finally:
             logger.info('mcp tool=%s user_id=%s duration_ms=%.1f outcome=%s',
                         name, identity['user_id'], (time.monotonic() - started) * 1000, outcome)
 
     common = (' Goals cascade annual → quarterly → weekly; prefer plan_ref to goal ID. '
               'Task statuses: backlog=unscheduled, week=this week, today=today, doing=in progress, '
-              'waiting=blocked, done=completed, archived=hidden. Read scope required.')
+              'waiting=blocked, done=completed, archived=hidden.')
 
-    def tool(description):
-        return mcp.tool(description=description + common,
-                        annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+    def tool(description, write=False):
+        scope = ' Write scope required.' if write else ' Read scope required.'
+        return mcp.tool(description=description + common + scope,
+                        annotations=ToolAnnotations(readOnlyHint=not write, destructiveHint=write, openWorldHint=False))
 
     @tool('List goals with direct task counts, key results and parent plan references. Closed and archived goals are excluded by default.')
     async def list_goals(type: GoalType | None = None, include_closed: bool = False, include_archived: bool = False) -> dict[str, Any]:
@@ -119,8 +165,8 @@ def create_mcp(owner):
     @tool('List tasks, filtered before limiting. goal accepts ID or plan_ref; tag is an exact name. '
           'due_before is an exclusive Europe/London date cutoff for either deadline; updated_since is an inclusive ISO timestamp. '
           'Default statuses are all active statuses. Results use stable creation/ID ordering; truncated indicates more matches.')
-    async def list_tasks(status: Status | list[Status] | None = None, goal: str | None = None,
-                         tag: str | None = None, due_before: date | None = None,
+    async def list_tasks(status: Status | list[Status] | None = None, goal: NullableText = None,
+                         tag: NullableText = None, due_before: date | None = None,
                          updated_since: datetime | None = None,
                          limit: Annotated[int, Field(ge=1, le=1000)] = 200) -> dict[str, Any]:
         return await call('list_tasks', status=status, goal=goal, tag=tag, due_before=due_before,
@@ -158,6 +204,55 @@ def create_mcp(owner):
     @tool('Suggest backlog tasks for the week using the existing scoring flow. Returns suggestions only; does not promote or create tasks.')
     async def suggest_week(limit: Annotated[int, Field(ge=1, le=1000)] = 5) -> dict[str, Any]:
         return await call('suggest_week', limit=limit)
+
+    @tool('Create a task, defaulting to backlog. goals accepts IDs or plan_refs; tags are names created if missing. '
+          'project accepts an owned ID or unique exact name. Returns the same task shape as list_tasks.', write=True)
+    async def create_task(title: str, description: NullableText = None, goals: list[str] | None = None,
+                          tags: list[str] | None = None, status: Status = 'backlog',
+                          soft_due_at: datetime | None = None, hard_due_at: datetime | None = None,
+                          size: int | None = None, project: NullableText = None) -> dict[str, Any]:
+        return await call('create_task', title=title, description=description, goals=goals or [],
+                          tags=tags or [], status=status, soft_due_at=soft_due_at, hard_due_at=hard_due_at,
+                          size=size, project=project)
+
+    @tool('Partially update an owned task and its tag/goal links atomically. Omitted fields are unchanged; '
+          'null clears description or due dates. add_goals/remove_goals accept IDs or plan_refs. '
+          'status=done sets completed_at through the existing task service; other statuses clear it.', write=True)
+    async def update_task(task_id: str, title: PatchText, description: PatchText, status: PatchStatus,
+                          add_tags: PatchList, remove_tags: PatchList, add_goals: PatchList, remove_goals: PatchList,
+                          soft_due_at: PatchDate, hard_due_at: PatchDate) -> dict[str, Any]:
+        values = dict(title=title, description=description, status=status, add_tags=add_tags,
+                      remove_tags=remove_tags, add_goals=add_goals, remove_goals=remove_goals,
+                      soft_due_at=soft_due_at, hard_due_at=hard_due_at)
+        changes = {key: value for key, value in values.items() if value is not UNSET}
+        return await call('update_task', task_id=task_id, **changes)
+
+    @tool('Create a goal. Annual goals have no parent; quarterly goals require an annual parent and weekly goals '
+          'require a quarterly parent. parent accepts ID or plan_ref. plan_ref must be unique for your account.', write=True)
+    async def create_goal(type: GoalType, title: str, parent: NullableText = None,
+                          end_date: datetime | None = None, plan_ref: NullableText = None,
+                          description: NullableText = None) -> dict[str, Any]:
+        return await call('create_goal', type=type, title=title, parent=parent, end_date=end_date,
+                          plan_ref=plan_ref, description=description)
+
+    @tool('Partially update a goal selected by ID or plan_ref. Omitted fields stay unchanged; null clears end_date, '
+          'description or plan_ref. status is on_target, at_risk or off_target. Rejects duplicate plan_ref.', write=True)
+    async def update_goal(goal: str, title: PatchText, status: PatchGoalStatus,
+                          end_date: PatchDate, plan_ref: PatchText, description: PatchText) -> dict[str, Any]:
+        values = dict(title=title, status=status, end_date=end_date, plan_ref=plan_ref, description=description)
+        changes = {key: value for key, value in values.items() if value is not UNSET}
+        return await call('update_goal', goal=goal, **changes)
+
+    @tool('Create goals and tasks together. ALWAYS call with dry_run=true first (the default), show the fully resolved '
+          'preview and errors to the user, and obtain approval before resubmitting the same batch with dry_run=false. '
+          'Dry runs write no tasks, goals, tags or links. Commit writes everything or nothing in one transaction. '
+          'Items may carry a unique temporary key; goal parent and task goals can reference a batch goal by key or plan_ref. '
+          'Forward references are supported; duplicates, ambiguous references, cycles and foreign-user references are rejected. '
+          'At most 1000 items per batch. A changed database is revalidated at commit time.', write=True)
+    async def bulk_create(goals: Annotated[list[BatchGoal], Field(default_factory=list)],
+                          tasks: Annotated[list[BatchTask], Field(default_factory=list)],
+                          dry_run: Annotated[bool, Field(strict=True)] = True) -> dict[str, Any]:
+        return await call('bulk_create', goals=goals, tasks=tasks, dry_run=dry_run)
 
     class PATMiddleware:
         def __init__(self, app):

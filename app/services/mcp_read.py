@@ -48,6 +48,11 @@ class MCPReadService:
             raise ValidationError(f"Goal reference '{reference}' not found")
         return matches[0].id
 
+    def task_results(self, task_ids):
+        goals, links = self._graph()
+        tasks = {task.id: task for task in self.repo.tasks_by_ids(task_ids)}
+        return [self._task(tasks[task_id], goals, links) for task_id in task_ids]
+
     def _task(self, task, goals, links):
         ids = links.get(task.id, set()) | ({task.goal_id} if task.goal_id else set())
         project = task.project if task.project and task.project.user_id == self.user_id else None
