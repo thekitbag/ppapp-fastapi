@@ -29,7 +29,7 @@ Both repositories use `feat/mcp-server`. The original untracked `docs/mcp-server
 
 ### Existing PostgreSQL migration limitation
 
-Fresh PostgreSQL replay fails in existing revision `81f80f37840f` because it tries to drop `tasks_pkey` while `task_tags_task_id_fkey` depends on it. This predates M1. Historical migrations were not rewritten. New-migration tests bootstrap the current model schema in a disposable database, stamp the new head, downgrade to `20260228_report001`, then exercise upgrade/downgrade with existing rows. A separate repair is needed before relying on a fresh PostgreSQL install. No production database was accessed.
+Fresh PostgreSQL replay fails in existing revision `81f80f37840f` because it tries to drop `tasks_pkey` while `task_tags_task_id_fkey` depends on it. This predates M1. Historical migrations were not rewritten. New-migration tests bootstrap the current model schema in a disposable database, stamp the new head, downgrade to `20260228_report001`, then exercise upgrade/downgrade with existing rows. A separate repair is needed before relying on a fresh PostgreSQL install. No production database was accessed during M1 implementation; the later deployment preparation below used read-only connection checks.
 
 ## Generated contract diffs
 
@@ -81,6 +81,20 @@ Do not reuse the local acceptance token in production. Token values were not pri
 These checks need the owner's interactive provider login; automated tests do not replace them.
 
 ## Delivery boundary
+
+### Verified production database and proposed backup
+
+Read-only inspection of the running Fly API on 11 November 2026 verified that `eigentask-api` connects to **Neon**, not a Fly Postgres cluster. Database: `neondb`; role: `neondb_owner`; server: PostgreSQL **17.11**; region: AWS London (`eu-west-2`). App host: `ep-wandering-silence-ab67kued-pooler.eu-west-2.aws.neon.tech`. The direct backup host `ep-wandering-silence-ab67kued.eu-west-2.aws.neon.tech` was independently connected to and verified. TLS and channel binding are required. No Fly proxy is needed. Production health returned HTTP 200.
+
+Matching `pg_dump` and `pg_restore` 17.11 clients were extracted locally from the official EDB Windows binaries into `.venv/pg17-client`; no database server was installed or changed. `scripts/backup_production.py` fetches the existing password through authenticated Fly SSH into memory, passes it only in the pg_dump child's environment, creates an exclusive binary custom-format archive, runs `pg_restore --list`, and writes a SHA-256 companion file. It never deploys or restores. Five isolated safety tests passed, covering previews, existing-file protection, binary output, failure handling and credential handling. The real backup has **not** been run.
+
+Exact proposed PowerShell command (works from any directory):
+
+```powershell
+& 'C:\Users\MarkGray\LocalProjects\Eigentask\ppapp-fastapi\.venv311\Scripts\python.exe' 'C:\Users\MarkGray\LocalProjects\Eigentask\ppapp-fastapi\scripts\backup_production.py' --output 'C:\Users\MarkGray\Backups\Eigentask\eigentask-before-m1-2026-11-11.dump'
+```
+
+The underlying pg_dump invocation uses `--format=custom --host=ep-wandering-silence-ab67kued.eu-west-2.aws.neon.tech --port=5432 --username=neondb_owner --dbname=neondb --no-password`, with `PGSSLMODE=require` and `PGCHANNELBINDING=require`. The password never appears in the command, transcript or backup-side logs. The archive is written as binary output without PowerShell redirection. Validation lists archive contents only; it does not claim to have tested a full restore.
 
 M1 provides tokens, goal plan references and eight read tools. M2 write tools and transaction changes must wait for explicit instruction. No push, PR or deployment is authorised. Before deployment, inspect the actual Fly database configuration, supply an exact custom-format pg_dump backup command and wait for approval. Verify the resulting archive before migrations.
 
