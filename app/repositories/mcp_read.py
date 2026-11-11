@@ -45,3 +45,7 @@ class MCPReadRepository:
 
     def tags(self):
         return self.db.query(Tag).filter(Tag.user_id == self.user_id).order_by(Tag.name, Tag.id).all()
+
+    def tasks_by_ids(self, ids):
+        return self.db.query(Task).options(selectinload(Task.tags), selectinload(Task.project)).filter(
+            Task.user_id == self.user_id, Task.id.in_(ids)).all()

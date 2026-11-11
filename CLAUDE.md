@@ -1,15 +1,19 @@
 # Claude Code Assistant Notes
 
-## MCP (milestone 1)
+## MCP
 
-- `app/mcp_server.py` serves eight read tools at `/mcp`, using the official SDK's stateless Streamable HTTP transport. Its session manager runs in the parent application's lifespan.
+- `app/mcp_server.py` serves eight read tools and five write tools at `/mcp`, using the official SDK's stateless Streamable HTTP transport. Its session manager runs in the parent application's lifespan.
 - Authentication is PAT-only (`Authorization: Bearer et_pat_...`), never a browser cookie. Cookie-authenticated `/api/v1/tokens` endpoints and web Settings manage tokens. Plaintext is returned once; only SHA-256 hashes are stored.
 - Read tools delegate to `MCPReadService`, scoped repositories, and existing goal/report/recommendation services. Never add direct database queries to the MCP adapter.
+- Write tools delegate to `MCPWriteService` and existing task/goal services. `atomic(db)` makes nested service commits flush only, then commits once; failures roll back the entire operation. Standalone REST service calls still commit normally.
+- `bulk_create` requires write scope even for previews and defaults to `dry_run=true`. The planner performs SELECTs only. Show the resolved preview to the user and obtain approval before committing the same batch with `dry_run=false`. Temporary goal keys and plan references support forward references. Revalidate at commit time; expose no delete tools.
+- Tool results contain data once in `structuredContent`, with an empty `content` array. Return explicit `CallToolResult` objects so the SDK does not duplicate JSON as text. Clients must read `structuredContent`; Claude Code, Inspector and the Python SDK are verified.
+- Patch factories preserve omitted fields separately from explicit nulls. Null clears nullable description/date/plan-reference fields; title and status cannot be null. Keep tag and goal-link changes inside the task update's transaction.
 - `plan_ref` is nullable, case-sensitive and unique per user. Prefer it over IDs when referring to goals.
 - On Windows use `.venv/Scripts/python.exe`; do not rewrite the Mac-compatible Makefile. Run `python -m pytest tests` in an activated environment. PostgreSQL migration tests require `MCP_TEST_DATABASE_URL` pointing to a **local** admin DB; they create/drop their own disposable database.
 - Regenerate REST schemas with `python scripts/export_openapi.py`, then run `npm run generate:api` in the sibling frontend. Review generated diffs.
 - For normal local startup: configure a development database and JWT secret, apply migrations, then `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`. Create a token in web Settings. See `docs/mcp-m1-handover.md` for connection commands and the existing fresh-PostgreSQL migration limitation.
-- M2 write tools, bulk creation and transaction changes are not implemented. Wait for explicit authorisation. No push, PR or deployment without approval; before deployment supply the exact Fly database pg_dump command and wait for approval.
+- M2 is implemented locally on `feat/mcp-write-tools` and has not been deployed. See `docs/mcp-m2-handover.md`. Do not push, open a PR or deploy without explicit instruction; production remains on M1. Before a future deployment take and verify a fresh backup.
 
 ## Test Environment Setup
 **IMPORTANT**: Always activate the virtual environment and use the Makefile for testing:

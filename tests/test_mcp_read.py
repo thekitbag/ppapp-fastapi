@@ -210,7 +210,7 @@ def test_real_sdk_http_client_and_cookie_rejection(database):
                         async with ClientSession(read, send) as session:
                             await session.initialize()
                             tools = (await session.list_tools()).tools
-                            assert len(tools) == 8
+                            assert len(tools) == 13
                             insights = next(t for t in tools if t.name == 'get_insights')
                             assert set(insights.inputSchema['properties']) == {'from','to'}
                             if write:
@@ -225,6 +225,7 @@ def test_real_sdk_http_client_and_cookie_rejection(database):
                                     ('list_tags',{}),('recommend_next',{}),('suggest_week',{})]:
                                     result = await session.call_tool(name, arguments)
                                     assert not result.isError, result
+                                    assert result.content == []
                                     assert 'error' not in result.structuredContent, result
                                     assert 'b secret title' not in str(result)
             await exercise(secret)

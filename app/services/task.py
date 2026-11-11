@@ -200,7 +200,7 @@ class TaskService(BaseService):
             self.logger.info('Updating task')
 
             # Validate update data
-            if "title" in update_data and not update_data["title"].strip():
+            if "title" in update_data and (not isinstance(update_data["title"], str) or not update_data["title"].strip()):
                 raise ValidationError("Task title cannot be empty")
 
             # Inject completion timestamp on status transitions
