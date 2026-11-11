@@ -54,7 +54,7 @@ Regenerate with `python scripts/export_openapi.py` in the backend, then `npm run
 
 An isolated acceptance API is running at `http://localhost:8000/mcp`, using `.venv/mcp-local.sqlite3`, with a read-only PAT. This contains local test data, not your production tasks. Its client configuration is `.venv/mcp-local.json`; treat it as a credential file and keep it untracked.
 
-The `eigentask-local` server has already been registered in your user-level Claude configuration (`C:\Users\MarkGray\.claude.json`). Claude Code reported that it is signed out, so an actual Claude tool invocation remains pending your interactive `claude auth login`. After signing in, ask Claude to use `eigentask-local` to list your goals. The SDK and Inspector checks have already passed.
+The `eigentask-local` server has already been registered in your user-level Claude configuration (`C:\Users\MarkGray\.claude.json`). After Mark signed in, Claude Code successfully invoked all eight read tools once against the running HTTP API: `list_goals`, `get_goal_tree`, `list_tasks`, `get_week` (Monday 2026-11-09), `get_insights` (2026-11-09 through 2026-11-11), `list_tags`, `recommend_next` and `suggest_week`. All eight returned successful tool results; Claude reported no errors or permission denials. Empty results were expected in this isolated database. The SDK and Inspector checks also passed. The local acceptance transcript is kept under ignored `.venv/claude-connection-check.jsonl`.
 
 For a normal development API with your chosen local database: install `requirements.txt`, configure `DATABASE_URL` and `JWT_SECRET`, apply Alembic migrations, and run `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`. Run `npm run dev` in the frontend and create a read token in Settings. Windows interpreters are `.venv/Scripts/python.exe` (3.13) and `.venv311/Scripts/python.exe` (3.11); the shared Makefile is unchanged.
 
@@ -84,4 +84,4 @@ These checks need the owner's interactive provider login; automated tests do not
 
 M1 provides tokens, goal plan references and eight read tools. M2 write tools and transaction changes must wait for explicit instruction. No push, PR or deployment is authorised. Before deployment, inspect the actual Fly database configuration, supply an exact custom-format pg_dump backup command and wait for approval. Verify the resulting archive before migrations.
 
-M2 has not started. Remaining interactive acceptance checks are Claude Code sign-in/tool invocation and the Microsoft/Google checklist above. The Claude-side planning skill, MCP OAuth, task-status history and time tracking remain follow-ups.
+M2 has not started. Local Claude Code acceptance is complete. Remaining interactive acceptance checks are the Microsoft/Google checklist above and checks against production after an approved deployment. The Claude-side planning skill, MCP OAuth, task-status history and time tracking remain follow-ups.
