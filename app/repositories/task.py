@@ -109,8 +109,9 @@ class TaskRepository(BaseRepository[Task, TaskCreate, dict]):
                 task.tags = tags
         
         # Update other fields with proper type conversion
+        clearable = {'description', 'size', 'hard_due_at', 'soft_due_at', 'energy', 'project_id', 'goal_id'}
         for field, value in update_data.items():
-            if value is not None and hasattr(task, field):
+            if (value is not None or field in clearable) and hasattr(task, field):
                 # Convert datetime strings to datetime objects
                 if field in ['hard_due_at', 'soft_due_at', 'created_at', 'updated_at'] and isinstance(value, str):
                     try:
