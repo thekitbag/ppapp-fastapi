@@ -5,7 +5,12 @@ from datetime import datetime
 
 from app.db import get_db
 from app.services.reporting import ReportingService
-from app.schemas import GoalReportResponse, SummaryReportResponse, BreakdownReportResponse
+from app.schemas import (
+    GoalReportResponse,
+    SummaryReportResponse,
+    BreakdownReportResponse,
+    TrendsReportResponse,
+)
 from app.api.v1.auth import get_current_user_dep
 
 router = APIRouter()
@@ -61,4 +66,23 @@ def get_summary_report(
         current_user["user_id"],
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@router.get("/trends", response_model=TrendsReportResponse)
+def get_trends_report(
+    start_date: datetime = Query(..., description="Inclusive start (ISO8601)"),
+    end_date: datetime = Query(..., description="Inclusive end (ISO8601)"),
+    granularity: str = Query("day", description="Bucket size: day | week | month"),
+    parent_goal_id: Optional[str] = Query(None, description="Scope series to children of this goal; omit for root view"),
+    current_user: Dict[str, Any] = Depends(get_current_user_dep),
+    reporting_service: ReportingService = Depends(get_reporting_service),
+):
+    """Return completed points bucketed over time, split by goal, plus period averages."""
+    return reporting_service.trends_report(
+        current_user["user_id"],
+        start_date=start_date,
+        end_date=end_date,
+        granularity=granularity,
+        parent_goal_id=parent_goal_id,
     )
