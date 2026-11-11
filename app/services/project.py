@@ -17,7 +17,7 @@ class ProjectService(BaseService):
     def create_project(self, project_in: ProjectCreate, user_id: str) -> ProjectSchema:
         """Create a new project."""
         try:
-            self.logger.info(f"Creating project: {project_in.name}")
+            self.logger.info('Creating project')
             
             if not project_in.name or not project_in.name.strip():
                 raise ValidationError("Project name cannot be empty")
@@ -25,17 +25,17 @@ class ProjectService(BaseService):
             project = self.project_repo.create_with_id(project_in, user_id)
             self.commit()
             
-            self.logger.info(f"Project created successfully: {project.id}")
+            self.logger.info('Project created successfully')
             return self.project_repo.to_schema(project)
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to create project: {str(e)}")
+            self.logger.error('Failed to create project')
             raise
     
     def get_project(self, project_id: str, user_id: str) -> ProjectSchema:
         """Get a project by ID."""
-        self.logger.debug(f"Fetching project: {project_id}")
+        self.logger.debug('Fetching project')
         
         project = self.project_repo.get_by_user(project_id, user_id)
         if not project:
@@ -56,7 +56,7 @@ class ProjectService(BaseService):
     def update_project(self, project_id: str, user_id: str, project_update: ProjectUpdate) -> ProjectSchema:
         """Update a project (partial update)."""
         try:
-            self.logger.info(f"Updating project: {project_id}")
+            self.logger.info('Updating project')
             
             existing_project = self.project_repo.get_by_user(project_id, user_id)
             if not existing_project:
@@ -68,18 +68,18 @@ class ProjectService(BaseService):
             updated_project = self.project_repo.update_by_user(project_id, user_id, project_update)
             self.commit()
             
-            self.logger.info(f"Project updated successfully: {project_id}")
+            self.logger.info('Project updated successfully')
             return self.project_repo.to_schema(updated_project)
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to update project {project_id}: {str(e)}")
+            self.logger.error('Failed to update project')
             raise
     
     def delete_project(self, project_id: str, user_id: str) -> bool:
         """Delete a project."""
         try:
-            self.logger.info(f"Deleting project: {project_id}")
+            self.logger.info('Deleting project')
             
             if not self.project_repo.get_by_user(project_id, user_id):
                 raise NotFoundError("Project", project_id)
@@ -87,10 +87,10 @@ class ProjectService(BaseService):
             deleted = self.project_repo.delete_by_user(project_id, user_id)
             self.commit()
             
-            self.logger.info(f"Project deleted successfully: {project_id}")
+            self.logger.info('Project deleted successfully')
             return deleted
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to delete project {project_id}: {str(e)}")
+            self.logger.error('Failed to delete project')
             raise

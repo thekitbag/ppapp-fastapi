@@ -53,10 +53,10 @@ class ImportService(BaseService):
             return self._create_tasks_from_cards(cards, user_id)
             
         except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse Trello JSON: {str(e)}")
+            self.logger.error('Failed to parse Trello JSON')
             raise ValueError(f"Invalid JSON format: {str(e)}")
         except Exception as e:
-            self.logger.error(f"Failed to import from Trello JSON: {str(e)}")
+            self.logger.error('Failed to import from Trello JSON')
             raise
     
     def import_from_trello_csv(self, csv_content: str, user_id: str) -> Dict[str, Any]:
@@ -80,7 +80,7 @@ class ImportService(BaseService):
             return self._create_tasks_from_cards(cards, user_id)
             
         except Exception as e:
-            self.logger.error(f"Failed to import from Trello CSV: {str(e)}")
+            self.logger.error('Failed to import from Trello CSV')
             raise
     
     def _map_list_name_to_status(self, list_name: str) -> str:
@@ -122,11 +122,11 @@ class ImportService(BaseService):
                 imported_tasks.append(task)
                 task_ids.append(task.id)
                 
-                self.logger.debug(f"Imported task: {task.title} -> {task.status}")
+                self.logger.debug('Imported task')
             
             self.commit()
             
-            self.logger.info(f"Successfully imported {len(imported_tasks)} tasks from Trello")
+            self.logger.info('Successfully imported')
             
             return {
                 "imported_count": len(imported_tasks),
@@ -135,7 +135,7 @@ class ImportService(BaseService):
             
         except Exception as e:
             self.rollback()
-            self.logger.error(f"Failed to create tasks from cards: {str(e)}")
+            self.logger.error('Failed to create tasks from cards')
             raise
     
     def _parse_due_date(self, due_date_str: Optional[str]) -> Optional[datetime]:
@@ -160,5 +160,5 @@ class ImportService(BaseService):
             except ValueError:
                 continue
         
-        self.logger.warning(f"Could not parse due date: {due_date_str}")
+        self.logger.warning('Could not parse due date')
         return None

@@ -16,7 +16,7 @@ class BaseService(ABC):
             self.db.commit()
             self.logger.debug("Database transaction committed")
         except Exception as e:
-            self.logger.error(f"Database commit failed: {str(e)}")
+            self.logger.error('Database commit failed')
             self.db.rollback()
             raise
     
