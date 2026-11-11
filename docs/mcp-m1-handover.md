@@ -1,5 +1,7 @@
 # MCP milestone 1 handover
 
+This records the deployed M1 release. Later local, undeployed M2 work is described in [mcp-m2-handover.md](mcp-m2-handover.md).
+
 ## Production outcome — 11 November 2026
 
 **M1 is deployed and production connection checks passed. M2 has not started.**
