@@ -77,6 +77,7 @@ class TaskPatch(WriteInput):
     title: str | None = None
     description: str | None = None
     status: Status | None = None
+    size: int | None = None
     add_tags: list[str] = Field(default_factory=list)
     remove_tags: list[str] = Field(default_factory=list)
     add_goals: list[str] = Field(default_factory=list)

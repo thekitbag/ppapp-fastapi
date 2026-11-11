@@ -60,7 +60,7 @@ class MCPWriteService:
     def update_task(self, task_id, **changes):
         patch = TaskPatch.model_validate(changes)
         native = {key: value for key, value in patch.model_dump(exclude_unset=True).items()
-                  if key in ('title', 'description', 'status', 'soft_due_at', 'hard_due_at')}
+                  if key in ('title', 'description', 'status', 'size', 'soft_due_at', 'hard_due_at')}
         # Reuse REST's due-date validation, including explicit null clearing.
         native = TaskUpdate.model_validate(native).model_dump(exclude_unset=True)
         with atomic(self.db):
