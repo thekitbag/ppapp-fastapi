@@ -43,7 +43,7 @@
           }
         },
         "responses": {
-          "201": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -1002,7 +1002,7 @@
           "goals"
         ],
         "summary": "List Goals",
-        "description": "List all goals for authenticated user.",
+        "description": "List goals for authenticated user with optional closed status filter and archive exclusion.",
         "operationId": "list_goals_api_v1_goals_get",
         "parameters": [
           {
@@ -1027,6 +1027,29 @@
               "default": 100,
               "title": "Limit"
             }
+          },
+          {
+            "name": "is_closed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Filter by closed status. None = no filter (all goals)",
+              "title": "Is Closed"
+            },
+            "description": "Filter by closed status. None = no filter (all goals)"
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include archived goals. Default: exclude archived",
+              "default": false,
+              "title": "Include Archived"
+            },
+            "description": "Include archived goals. Default: exclude archived"
           },
           {
             "name": "ppapp_session",
@@ -1093,6 +1116,30 @@
               "title": "Include Tasks"
             },
             "description": "Include linked tasks for weekly goals"
+          },
+          {
+            "name": "include_closed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include closed goals in tree. Default: open goals only",
+              "default": false,
+              "title": "Include Closed"
+            },
+            "description": "Include closed goals in tree. Default: open goals only"
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include archived goals. Default: exclude archived",
+              "default": false,
+              "title": "Include Archived"
+            },
+            "description": "Include archived goals. Default: exclude archived"
           },
           {
             "name": "ppapp_session",
@@ -1174,6 +1221,18 @@
               "title": "Parent Id"
             },
             "description": "Parent goal ID (for quarterly/weekly goals)"
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include archived goals. Default: exclude archived",
+              "default": false,
+              "title": "Include Archived"
+            },
+            "description": "Include archived goals. Default: exclude archived"
           },
           {
             "name": "ppapp_session",
@@ -1662,6 +1721,380 @@
         }
       }
     },
+    "/api/v1/goals/{goal_id}/close": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Close Goal",
+        "description": "Close a goal for authenticated user. Idempotent: returns 200 if already closed.",
+        "operationId": "close_goal_api_v1_goals__goal_id__close_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goal_id}/reopen": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Reopen Goal",
+        "description": "Reopen a goal for authenticated user. Idempotent: returns 200 if already open.",
+        "operationId": "reopen_goal_api_v1_goals__goal_id__reopen_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goal_id}/archive": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Archive Goal",
+        "description": "Archive a goal for authenticated user. Idempotent: returns 200 if already archived.",
+        "operationId": "archive_goal_api_v1_goals__goal_id__archive_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goal_id}/unarchive": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Unarchive Goal",
+        "description": "Unarchive a goal for authenticated user. Idempotent: returns 200 if already unarchived.",
+        "operationId": "unarchive_goal_api_v1_goals__goal_id__unarchive_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goal_id}/priority": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Update Goal Priority",
+        "description": "Update a goal's priority. Higher values = higher priority (displayed first).",
+        "operationId": "update_goal_priority_api_v1_goals__goal_id__priority_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriorityUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goal_id}/reorder": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Reorder Goal",
+        "description": "Smart reordering endpoint. Swaps goal with adjacent sibling.\nAutomatically fixes priority collisions with self-healing re-indexing.\n\nArgs:\n    goal_id: ID of the goal to reorder\n    payload: {\"direction\": \"up\" | \"down\"}\n\nReturns:\n    Updated goal object",
+        "operationId": "reorder_goal_api_v1_goals__goal_id__reorder_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -1689,18 +2122,44 @@
           "recommendations"
         ],
         "summary": "Next Recommendations",
-        "description": "Get next task recommendations.",
+        "description": "Get next task recommendations with optional energy and time_window filtering.",
         "operationId": "next_recommendations_api_v1_recommendations_next_get",
         "parameters": [
           {
-            "name": "window",
+            "name": "energy",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "default": 30,
-              "title": "Window"
-            }
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Current energy level (low, medium, or high); influences task-size preference in ranking",
+              "title": "Energy"
+            },
+            "description": "Current energy level (low, medium, or high); influences task-size preference in ranking"
+          },
+          {
+            "name": "time_window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Available time in minutes; must be one of 15, 30, 60, 120, 240",
+              "title": "Time Window"
+            },
+            "description": "Available time in minutes; must be one of 15, 30, 60, 120, 240"
           },
           {
             "name": "limit",
@@ -1713,13 +2172,33 @@
             }
           },
           {
-            "name": "energy",
+            "name": "window",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "default": "high",
-              "title": "Energy"
+              "type": "integer",
+              "description": "Deprecated: use time_window instead",
+              "deprecated": true,
+              "default": 30,
+              "title": "Window"
+            },
+            "description": "Deprecated: use time_window instead",
+            "deprecated": true
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
             }
           }
         ],
@@ -1755,15 +2234,33 @@
         "summary": "Suggest Week Api",
         "description": "Get week suggestions.",
         "operationId": "suggest_week_api_api_v1_recommendations_suggest_week_post",
+        "parameters": [
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SuggestWeekBody"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -2205,6 +2702,269 @@
         }
       }
     },
+    "/api/v1/reports/goals/{goal_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Goal Report",
+        "description": "Return cumulative completed task size for a goal and all its descendants.",
+        "operationId": "get_goal_report_api_v1_reports_goals__goal_id__get",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive start (ISO8601)",
+              "title": "Start Date"
+            },
+            "description": "Inclusive start (ISO8601)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive end (ISO8601)",
+              "title": "End Date"
+            },
+            "description": "Inclusive end (ISO8601)"
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/breakdown": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Breakdown Report",
+        "description": "Return hierarchical breakdown of completed task points by goal level.",
+        "operationId": "get_breakdown_report_api_v1_reports_breakdown_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Inclusive start (ISO8601)",
+              "title": "Start Date"
+            },
+            "description": "Inclusive start (ISO8601)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Inclusive end (ISO8601)",
+              "title": "End Date"
+            },
+            "description": "Inclusive end (ISO8601)"
+          },
+          {
+            "name": "parent_goal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Drill into children of this goal; omit for root view",
+              "title": "Parent Goal Id"
+            },
+            "description": "Drill into children of this goal; omit for root view"
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BreakdownReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/summary": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Summary Report",
+        "description": "Return period productivity totals grouped by top-level goal roots plus unlinked tasks.",
+        "operationId": "get_summary_report_api_v1_reports_summary_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Inclusive start (ISO8601)",
+              "title": "Start Date"
+            },
+            "description": "Inclusive start (ISO8601)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Inclusive end (ISO8601)",
+              "title": "End Date"
+            },
+            "description": "Inclusive end (ISO8601)"
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -2476,6 +3236,95 @@
         ],
         "title": "Body_import_trello_api_v1_import_trello_post"
       },
+      "BreakdownReportResponse": {
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "total_impact": {
+            "type": "integer",
+            "title": "Total Impact"
+          },
+          "breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownRow"
+            },
+            "type": "array",
+            "title": "Breakdown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parent_id",
+          "total_impact",
+          "breakdown"
+        ],
+        "title": "BreakdownReportResponse"
+      },
+      "BreakdownRow": {
+        "properties": {
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Id"
+          },
+          "goal_title": {
+            "type": "string",
+            "title": "Goal Title"
+          },
+          "goal_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "annual",
+                  "quarterly",
+                  "weekly"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Type"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "percentage": {
+            "type": "integer",
+            "title": "Percentage"
+          },
+          "has_children": {
+            "type": "boolean",
+            "title": "Has Children"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal_id",
+          "goal_title",
+          "points",
+          "percentage",
+          "has_children"
+        ],
+        "title": "BreakdownRow"
+      },
       "DevLoginRequest": {
         "properties": {
           "email": {
@@ -2566,6 +3415,18 @@
             ],
             "title": "Status",
             "default": "on_target"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority",
+            "default": 0.0
           }
         },
         "type": "object",
@@ -2649,6 +3510,33 @@
             "title": "Status",
             "default": "on_target"
           },
+          "is_closed": {
+            "type": "boolean",
+            "title": "Is Closed",
+            "default": false
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "is_archived": {
+            "type": "boolean",
+            "title": "Is Archived",
+            "default": false
+          },
+          "priority": {
+            "type": "number",
+            "title": "Priority",
+            "default": 0.0
+          },
           "key_results": {
             "items": {
               "$ref": "#/components/schemas/KROut"
@@ -2671,6 +3559,41 @@
           "created_at"
         ],
         "title": "GoalDetail"
+      },
+      "GoalGroupEntry": {
+        "properties": {
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Id"
+          },
+          "goal_title": {
+            "type": "string",
+            "title": "Goal Title"
+          },
+          "total_size": {
+            "type": "integer",
+            "title": "Total Size"
+          },
+          "is_no_goal": {
+            "type": "boolean",
+            "title": "Is No Goal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal_id",
+          "goal_title",
+          "total_size",
+          "is_no_goal"
+        ],
+        "title": "GoalGroupEntry"
       },
       "GoalNode": {
         "properties": {
@@ -2747,6 +3670,33 @@
             "title": "Status",
             "default": "on_target"
           },
+          "is_closed": {
+            "type": "boolean",
+            "title": "Is Closed",
+            "default": false
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "is_archived": {
+            "type": "boolean",
+            "title": "Is Archived",
+            "default": false
+          },
+          "priority": {
+            "type": "number",
+            "title": "Priority",
+            "default": 0.0
+          },
           "children": {
             "items": {
               "$ref": "#/components/schemas/GoalNode"
@@ -2767,6 +3717,17 @@
               }
             ],
             "title": "Tasks"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
           }
         },
         "type": "object",
@@ -2852,6 +3813,33 @@
             ],
             "title": "Status",
             "default": "on_target"
+          },
+          "is_closed": {
+            "type": "boolean",
+            "title": "Is Closed",
+            "default": false
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "is_archived": {
+            "type": "boolean",
+            "title": "Is Archived",
+            "default": false
+          },
+          "priority": {
+            "type": "number",
+            "title": "Priority",
+            "default": 0.0
           }
         },
         "type": "object",
@@ -2861,6 +3849,63 @@
           "created_at"
         ],
         "title": "GoalOut"
+      },
+      "GoalReportResponse": {
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "title": "Goal Id"
+          },
+          "goal_title": {
+            "type": "string",
+            "title": "Goal Title"
+          },
+          "total_size": {
+            "type": "integer",
+            "title": "Total Size"
+          },
+          "direct_size": {
+            "type": "integer",
+            "title": "Direct Size"
+          },
+          "descendant_size": {
+            "type": "integer",
+            "title": "Descendant Size"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal_id",
+          "goal_title",
+          "total_size",
+          "direct_size",
+          "descendant_size"
+        ],
+        "title": "GoalReportResponse"
       },
       "GoalSummary": {
         "properties": {
@@ -2958,6 +4003,17 @@
               }
             ],
             "title": "Status"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
           }
         },
         "type": "object",
@@ -3071,6 +4127,19 @@
           "created_at"
         ],
         "title": "KROut"
+      },
+      "PriorityUpdate": {
+        "properties": {
+          "priority": {
+            "type": "number",
+            "title": "Priority"
+          }
+        },
+        "type": "object",
+        "required": [
+          "priority"
+        ],
+        "title": "PriorityUpdate"
       },
       "Project": {
         "properties": {
@@ -3254,6 +4323,7 @@
             "title": "Score"
           },
           "factors": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Factors"
           },
@@ -3287,6 +4357,19 @@
         ],
         "title": "RecommendationResponse"
       },
+      "ReorderRequest": {
+        "properties": {
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "direction"
+        ],
+        "title": "ReorderRequest"
+      },
       "SuggestWeekBody": {
         "properties": {
           "limit": {
@@ -3297,6 +4380,39 @@
         },
         "type": "object",
         "title": "SuggestWeekBody"
+      },
+      "SummaryReportResponse": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End Date"
+          },
+          "impact_score": {
+            "type": "integer",
+            "title": "Impact Score"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GoalGroupEntry"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date",
+          "impact_score",
+          "groups"
+        ],
+        "title": "SummaryReportResponse"
       },
       "TaskCreate": {
         "properties": {
@@ -3318,31 +4434,13 @@
           "size": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "xs",
-                  "s",
-                  "m",
-                  "l",
-                  "xl"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Size"
-          },
-          "effort_minutes": {
-            "anyOf": [
-              {
                 "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Effort Minutes"
+            "title": "Size"
           },
           "hard_due_at": {
             "anyOf": [
@@ -3463,6 +4561,33 @@
             "title": "Insert At",
             "description": "Position for new task in status bucket",
             "default": "top"
+          },
+          "client_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Request Id",
+            "description": "Optional client-generated token for idempotent requests"
+          },
+          "goals": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goals",
+            "description": "Array of goal IDs to link to this task"
           }
         },
         "type": "object",
@@ -3481,14 +4606,20 @@
             "title": "Task Ids"
           },
           "goal_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Goal Id"
           }
         },
         "type": "object",
         "required": [
-          "task_ids",
-          "goal_id"
+          "task_ids"
         ],
         "title": "TaskGoalLink"
       },
@@ -3564,14 +4695,7 @@
           "size": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "xs",
-                  "s",
-                  "m",
-                  "l",
-                  "xl"
-                ]
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -3579,16 +4703,17 @@
             ],
             "title": "Size"
           },
-          "effort_minutes": {
+          "completed_at": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Effort Minutes"
+            "title": "Completed At"
           },
           "hard_due_at": {
             "anyOf": [
@@ -3756,31 +4881,13 @@
           "size": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "xs",
-                  "s",
-                  "m",
-                  "l",
-                  "xl"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Size"
-          },
-          "effort_minutes": {
-            "anyOf": [
-              {
                 "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Effort Minutes"
+            "title": "Size"
           },
           "hard_due_at": {
             "anyOf": [
