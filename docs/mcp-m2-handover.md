@@ -35,6 +35,7 @@ Verified with a real Claude Code probe, the SDK integration tests, Inspector, an
 - Full frontend suite: **399 passed, 8 skipped**; TypeScript and production build passed.
 - New service/transport coverage includes all five write tools, write-scope enforcement, cross-user attempts, sparse/null patches, completion timestamps, duplicate and ambiguous references, date validation, batch cycles and previews with no DML.
 - Disposable local PostgreSQL tests proved that other connections see no intermediate records, successful bulk creation commits once, late failures roll back every affected table, and changed database state invalidates an earlier preview.
+- Backend CI provisions an isolated PostgreSQL 17 service and sets `MCP_TEST_DATABASE_URL`, so these PostgreSQL atomicity and migration tests run in GitHub rather than being skipped.
 - Claude Code first previewed a synthetic local batch: **zero goals, tasks, tags or links were written**. A separately authorised local test then previewed/committed the same batch, exercised all five write tools, verified completion/null clearing and queried the new task. All tool results succeeded.
 - Inspector successfully ran a resolved bulk preview, confirmed `content: []`, and independently confirmed unchanged row counts.
 - Regenerated `openapi.json` and frontend API types: **no diff**. These new contracts are MCP tool schemas; no REST endpoints or database migrations were added.
