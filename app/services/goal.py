@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.repositories import GoalRepository
 from app.schemas import GoalCreate, Goal as GoalSchema, GoalDetail, KROut, KRCreate, TaskGoalLink, TaskGoalLinkResponse, GoalNode, GoalOut
-from app.exceptions import NotFoundError, ValidationError
+from app.exceptions import NotFoundError, ValidationError, ConflictError
+from sqlalchemy.exc import IntegrityError
 from .base import BaseService
 
 
@@ -25,12 +26,18 @@ class GoalService(BaseService):
             # Goals v2: Validate hierarchy rules
             self._validate_goal_hierarchy(goal_in.type, goal_in.parent_goal_id, user_id)
             
+            self._check_plan_ref(goal_in.plan_ref, user_id)
             goal = self.goal_repo.create_with_id(goal_in, user_id)
             self.commit()
             
             self.logger.info('Goal created successfully')
             return self.goal_repo.to_schema(goal)
             
+        except IntegrityError as e:
+            self.rollback()
+            if "uq_goals_user_plan_ref" in str(e.orig) or "goals.user_id, goals.plan_ref" in str(e.orig):
+                raise ConflictError("Goal plan_ref already exists for this user") from None
+            raise
         except Exception as e:
             self.rollback()
             self.logger.error('Failed to create goal')
@@ -83,6 +90,9 @@ class GoalService(BaseService):
                 if self._would_create_cycle(goal_id, new_parent_id):
                     raise ValidationError("Cannot set parent: would create a cycle in the goal hierarchy")
             
+            if "plan_ref" in goal_update:
+                self._check_plan_ref(goal_update["plan_ref"], user_id, goal_id)
+
             # Update goal attributes
             for field, value in goal_update.items():
                 if hasattr(goal, field):
@@ -94,6 +104,11 @@ class GoalService(BaseService):
             self.logger.info('Goal updated successfully')
             return self.goal_repo.to_schema(goal)
             
+        except IntegrityError as e:
+            self.rollback()
+            if "uq_goals_user_plan_ref" in str(e.orig) or "goals.user_id, goals.plan_ref" in str(e.orig):
+                raise ConflictError("Goal plan_ref already exists for this user") from None
+            raise
         except Exception as e:
             self.rollback()
             self.logger.error('Failed to update goal')
@@ -209,6 +224,7 @@ class GoalService(BaseService):
             id=goal.id,
             title=goal.title,
             description=goal.description,
+            plan_ref=goal.plan_ref,
             type=goal_type,
             created_at=goal.created_at,
             key_results=[KROut(
@@ -491,6 +507,9 @@ class GoalService(BaseService):
                     "id": goal.id,
                     "title": goal.title,
                     "description": goal.description,
+                    "plan_ref": goal.plan_ref,
+                    "priority": goal.priority,
+                    "is_archived": goal.is_archived,
                     "type": goal.type.value if goal.type else None,
                     "parent_goal_id": goal.parent_goal_id,
                     "end_date": goal.end_date,
@@ -787,3 +806,13 @@ class GoalService(BaseService):
             self.rollback()
             self.logger.error('Failed to reorder goal')
             raise
+
+    def _check_plan_ref(self, plan_ref, user_id, exclude_id=None):
+        if plan_ref is None:
+            return
+        from app.models import Goal
+        query = self.db.query(Goal).filter(Goal.user_id == user_id, Goal.plan_ref == plan_ref)
+        if exclude_id:
+            query = query.filter(Goal.id != exclude_id)
+        if query.first():
+            raise ConflictError("Goal plan_ref already exists for this user")

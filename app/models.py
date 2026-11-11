@@ -179,6 +179,8 @@ class Goal(Base):
     id = Column(String, primary_key=True)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    plan_ref = Column(String, nullable=True)
+    __table_args__ = (UniqueConstraint("user_id", "plan_ref", name="uq_goals_user_plan_ref"),)
     type = Column(Enum(GoalTypeEnum), nullable=True)
     
     # Goals v2 fields - hierarchy, status, and timing
@@ -236,3 +238,16 @@ class TaskGoal(Base):
     task = relationship("Task", back_populates="goal_links")
     goal = relationship("Goal", back_populates="task_links")
     user = relationship("User", back_populates="task_goals")
+
+
+class ApiToken(Base):
+    __tablename__ = "api_tokens"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    prefix = Column(String(8), nullable=False)
+    scopes = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
