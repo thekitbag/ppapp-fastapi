@@ -26,7 +26,8 @@ async def lifespan(app: FastAPI):
         alembic_command.upgrade(alembic_cfg, "head")
         logger.info("Database migrations applied")
 
-    yield
+    async with app.state.mcp.session_manager.run():
+        yield
 
     # Shutdown
     logger.info("Shutting down Personal Productivity API")
@@ -118,6 +119,13 @@ def create_app() -> FastAPI:
         """Alias for Google callback endpoint."""
         return await auth_v1.google_callback(request, response, code, state, error, oauth_state)
     
+    from app.mcp_server import create_mcp
+    app.state.mcp, mcp_app = create_mcp(app)
+    # An exact ASGI route preserves REST trailing-slash redirects and serves
+    # /mcp directly, without /mcp/mcp or a redirect that could drop auth headers.
+    from starlette.routing import Route
+    app.router.routes.append(Route("/mcp", mcp_app, methods=["GET", "POST", "DELETE"]))
+
     return app
 
 

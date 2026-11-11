@@ -40,3 +40,8 @@ websockets==15.0.1
 pyjwt[crypto]==2.10.1
 cryptography>=41.0.0
 alembic==1.14.0
+mcp==1.30.0
+sse-starlette==2.4.1
+pydantic-settings==2.15.0
+typing-inspection==0.4.2
+tzdata>=2025.1
