@@ -3126,6 +3126,110 @@
         }
       }
     },
+    "/api/v1/reports/trends": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Trends Report",
+        "description": "Return completed points bucketed over time, split by goal, plus period averages.",
+        "operationId": "get_trends_report_api_v1_reports_trends_get",
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Inclusive start (ISO8601)",
+              "title": "Start Date"
+            },
+            "description": "Inclusive start (ISO8601)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Inclusive end (ISO8601)",
+              "title": "End Date"
+            },
+            "description": "Inclusive end (ISO8601)"
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Bucket size: day | week | month",
+              "default": "day",
+              "title": "Granularity"
+            },
+            "description": "Bucket size: day | week | month"
+          },
+          {
+            "name": "parent_goal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Scope series to children of this goal; omit for root view",
+              "title": "Parent Goal Id"
+            },
+            "description": "Scope series to children of this goal; omit for root view"
+          },
+          {
+            "name": "ppapp_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ppapp Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendsReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -5333,6 +5437,219 @@
           "revoked_at"
         ],
         "title": "TokenOut"
+      },
+      "TrendBucket": {
+        "properties": {
+          "bucket_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Bucket Start"
+          },
+          "bucket_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Bucket End"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket_start",
+          "bucket_end",
+          "label",
+          "points",
+          "task_count"
+        ],
+        "title": "TrendBucket",
+        "description": "One time slot on the trend axis. Buckets are dense \u2014 zero-point slots included."
+      },
+      "TrendSeries": {
+        "properties": {
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Id"
+          },
+          "goal_title": {
+            "type": "string",
+            "title": "Goal Title"
+          },
+          "is_no_goal": {
+            "type": "boolean",
+            "title": "Is No Goal"
+          },
+          "order_index": {
+            "type": "integer",
+            "title": "Order Index"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "values": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal_id",
+          "goal_title",
+          "is_no_goal",
+          "order_index",
+          "points",
+          "values"
+        ],
+        "title": "TrendSeries",
+        "description": "Points for one goal row across every bucket. `values` is index-aligned to `buckets`."
+      },
+      "TrendStats": {
+        "properties": {
+          "total_points": {
+            "type": "integer",
+            "title": "Total Points"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count"
+          },
+          "days_in_period": {
+            "type": "integer",
+            "title": "Days In Period"
+          },
+          "active_days": {
+            "type": "integer",
+            "title": "Active Days"
+          },
+          "avg_points_per_day": {
+            "type": "number",
+            "title": "Avg Points Per Day"
+          },
+          "avg_points_per_active_day": {
+            "type": "number",
+            "title": "Avg Points Per Active Day"
+          },
+          "avg_points_per_week": {
+            "type": "number",
+            "title": "Avg Points Per Week"
+          },
+          "best_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Day"
+          },
+          "best_day_points": {
+            "type": "integer",
+            "title": "Best Day Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_points",
+          "task_count",
+          "days_in_period",
+          "active_days",
+          "avg_points_per_day",
+          "avg_points_per_active_day",
+          "avg_points_per_week",
+          "best_day_points"
+        ],
+        "title": "TrendStats",
+        "description": "Period aggregates. Always computed over UTC calendar days, whatever the granularity."
+      },
+      "TrendsReportResponse": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End Date"
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Granularity"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "total_points": {
+            "type": "integer",
+            "title": "Total Points"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/TrendBucket"
+            },
+            "type": "array",
+            "title": "Buckets"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/TrendSeries"
+            },
+            "type": "array",
+            "title": "Series"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/TrendStats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date",
+          "granularity",
+          "parent_id",
+          "total_points",
+          "buckets",
+          "series",
+          "stats"
+        ],
+        "title": "TrendsReportResponse"
       },
       "ValidationError": {
         "properties": {
