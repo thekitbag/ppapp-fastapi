@@ -271,18 +271,27 @@ def test_sdk_writes_scopes_sparse_updates_and_single_payload(database):
                             assert len(tools)==13
                             patch=next(tool for tool in tools if tool.name=='update_task')
                             assert patch.inputSchema['required']==['task_id']
+                            goal_patch=next(tool for tool in tools if tool.name=='update_goal')
+                            assert goal_patch.inputSchema['required']==['goal']
+                            assert goal_patch.inputSchema['properties']['closed']['type']=='boolean'
+                            assert goal_patch.inputSchema['properties']['archived']['type']=='boolean'
+                            assert 'null' in str(goal_patch.inputSchema['properties']['parent'])
                             async def call(name,args):
                                 result=await session.call_tool(name,args)
                                 assert result.content==[]
                                 return result
                             if mode=='read':
                                 for name,args in [('create_task',{'title':'Forbidden'}),('update_task',{'task_id':'aactive','title':'Forbidden'}),
-                                    ('create_goal',{'type':'annual','title':'Forbidden'}),('update_goal',{'goal':'A1','title':'Forbidden'}),
+                                    ('create_goal',{'type':'annual','title':'Forbidden'}),('update_goal',{'goal':'A1','closed':True,'archived':True,'parent':None}),
                                     ('bulk_create',{})]:
                                     result=await call(name,args)
                                     assert result.isError and result.structuredContent['error']['code']=='forbidden'
                                 return
                             if mode=='foreign':
+                                result=await call('update_goal',{'goal':'aannual','closed':True})
+                                assert result.isError
+                                result=await call('update_goal',{'goal':'bquarter','parent':'aannual'})
+                                assert result.isError
                                 result=await call('update_task',{'task_id':'aactive','description':'Foreign'})
                                 assert result.isError
                                 result=await call('bulk_create',{'tasks':[{'title':'Foreign link','goals':['aweekly']}],'dry_run':False})
@@ -305,6 +314,14 @@ def test_sdk_writes_scopes_sparse_updates_and_single_payload(database):
                             assert goal.structuredContent['title']=='SDK annual'
                             assert goal.structuredContent['description']=='Keep goal description'
                             assert goal.structuredContent['end_date']
+                            goal=await call('update_goal',{'goal':'SDK','closed':True,'archived':True,'parent':None})
+                            assert not goal.isError and goal.structuredContent['is_closed'] and goal.structuredContent['is_archived']
+                            assert goal.structuredContent['closed_at'] and goal.structuredContent['parent_goal_id'] is None
+                            goal=await call('update_goal',{'goal':'SDK','closed':False,'archived':False})
+                            assert not goal.isError and not goal.structuredContent['is_closed'] and not goal.structuredContent['is_archived']
+                            assert goal.structuredContent['closed_at'] is None
+                            moved=await call('update_goal',{'goal':'Q1','parent':'SDK'})
+                            assert not moved.isError and moved.structuredContent['parent_goal_id']==goal.structuredContent['id']
                             goal=await call('update_goal',{'goal':'SDK','plan_ref':None,'end_date':None,'description':None})
                             assert goal.structuredContent['plan_ref'] is None and goal.structuredContent['end_date'] is None
                             assert goal.structuredContent['description'] is None

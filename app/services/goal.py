@@ -82,13 +82,13 @@ class GoalService(BaseService):
             new_type = goal_update.get("type", goal.type.value if goal.type else None)
             new_parent_id = goal_update.get("parent_goal_id", goal.parent_goal_id)
             
-            if "type" in goal_update or "parent_goal_id" in goal_update:
-                self._validate_goal_hierarchy(new_type, new_parent_id, user_id)
-                
             # Check for cycles if parent is being changed
             if "parent_goal_id" in goal_update and new_parent_id:
-                if self._would_create_cycle(goal_id, new_parent_id):
+                if self._would_create_cycle(goal_id, new_parent_id, user_id):
                     raise ValidationError("Cannot set parent: would create a cycle in the goal hierarchy")
+
+            if "type" in goal_update or "parent_goal_id" in goal_update:
+                self._validate_goal_hierarchy(new_type, new_parent_id, user_id)
             
             if "plan_ref" in goal_update:
                 self._check_plan_ref(goal_update["plan_ref"], user_id, goal_id)
@@ -436,7 +436,7 @@ class GoalService(BaseService):
             if parent.type.value != "quarterly":
                 raise ValidationError("Weekly goals must have a quarterly parent (not annual or weekly)")
     
-    def _would_create_cycle(self, goal_id: str, parent_goal_id: str) -> bool:
+    def _would_create_cycle(self, goal_id: str, parent_goal_id: str, user_id: str = None) -> bool:
         """Check if setting parent would create a cycle in the hierarchy."""
         if not parent_goal_id or goal_id == parent_goal_id:
             return goal_id == parent_goal_id
@@ -445,12 +445,13 @@ class GoalService(BaseService):
         current_parent_id = parent_goal_id
         visited = set()
         
-        while current_parent_id and current_parent_id not in visited:
-            if current_parent_id == goal_id:
+        while current_parent_id:
+            if current_parent_id == goal_id or current_parent_id in visited:
                 return True
             visited.add(current_parent_id)
             
-            parent_goal = self.goal_repo.get(current_parent_id)
+            parent_goal = (self.goal_repo.get_by_user(current_parent_id, user_id)
+                           if user_id is not None else self.goal_repo.get(current_parent_id))
             if not parent_goal:
                 break
             current_parent_id = parent_goal.parent_goal_id
@@ -574,8 +575,12 @@ class GoalService(BaseService):
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc)
 
-            # Recursive closure function
+            # Legacy malformed links must not cross ownership or recurse forever.
+            visited = set()
             def close_recursive(current_goal):
+                if current_goal.user_id != user_id or current_goal.id in visited:
+                    return
+                visited.add(current_goal.id)
                 # Idempotent check at individual level
                 if not current_goal.is_closed:
                     current_goal.is_closed = True

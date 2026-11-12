@@ -1,4 +1,4 @@
-"""Owned reference lookup and task link adjustments for composed writes."""
+"""Owned reference lookup, row locks and task link adjustments for composed writes."""
 from sqlalchemy import or_
 from app.models import Goal, Project, Task, TaskGoal
 from app.exceptions import ValidationError
@@ -24,6 +24,12 @@ class MCPWriteRepository:
         if task is None:
             raise ValidationError(f"Task '{task_id}' not found")
         return task
+
+    def goal(self, goal_id):
+        goal = self.db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == self.user_id).populate_existing().with_for_update().first()
+        if goal is None:
+            raise ValidationError(f"Goal '{goal_id}' not found")
+        return goal
 
     def remove_goal_links(self, task, goal_ids):
         # Include old unowned junction rows only when both endpoint records are
