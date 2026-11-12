@@ -54,6 +54,7 @@ PatchDate = Annotated[datetime | None, Field(default_factory=omitted)]
 PatchStatus = Annotated[Status | None, Field(default_factory=omitted)]
 PatchSize = Annotated[int | None, Field(default_factory=omitted)]
 PatchGoalStatus = Annotated[GoalStatus | None, Field(default_factory=omitted)]
+PatchBool = Annotated[bool, Field(default_factory=omitted, strict=True)]
 PatchList = Annotated[list[str], Field(default_factory=omitted)]
 
 
@@ -240,10 +241,16 @@ def create_mcp(owner):
                           plan_ref=plan_ref, description=description)
 
     @tool('Partially update a goal selected by ID or plan_ref. Omitted fields stay unchanged; null clears end_date, '
-          'description or plan_ref. status is on_target, at_risk or off_target. Rejects duplicate plan_ref.', write=True)
+          'description or plan_ref. closed=true closes this goal and descendants and sets closed_at; false reopens only '
+          'this goal and clears closed_at. archived independently archives/unarchives this goal. parent accepts an owned '
+          'goal ID or plan_ref: weekly under quarterly, quarterly under annual, annual without a parent (null). '
+          'Rejects cycles and foreign goals. All changes are atomic. status is on_target, at_risk or off_target. '
+          'Rejects duplicate plan_ref.', write=True)
     async def update_goal(goal: str, title: PatchText, status: PatchGoalStatus,
-                          end_date: PatchDate, plan_ref: PatchText, description: PatchText) -> dict[str, Any]:
-        values = dict(title=title, status=status, end_date=end_date, plan_ref=plan_ref, description=description)
+                          end_date: PatchDate, plan_ref: PatchText, description: PatchText,
+                          closed: PatchBool, archived: PatchBool, parent: PatchText) -> dict[str, Any]:
+        values = dict(title=title, status=status, end_date=end_date, plan_ref=plan_ref, description=description,
+                      closed=closed, archived=archived, parent=parent)
         changes = {key: value for key, value in values.items() if value is not UNSET}
         return await call('update_goal', goal=goal, **changes)
 

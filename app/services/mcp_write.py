@@ -51,11 +51,25 @@ class MCPWriteService:
 
     def update_goal(self, goal, **changes):
         patch = GoalPatch.model_validate(changes)
-        payload = GoalUpdate.model_validate(patch.model_dump(exclude_unset=True))
+        values = patch.model_dump(exclude_unset=True)
+        native = GoalUpdate.model_validate({key: value for key, value in values.items()
+            if key not in ('parent', 'closed', 'archived')}).model_dump(exclude_unset=True)
         with atomic(self.db):
             goal_id = self.read.resolve_goal(goal)
-            return self.goals.update_goal(goal_id, self.user_id,
-                payload.model_dump(exclude_unset=True)).model_dump(mode='json')
+            self.repo.goal(goal_id)
+            if 'parent' in values:
+                parent_id = self.read.resolve_goal(patch.parent) if patch.parent is not None else None
+                if parent_id is not None:
+                    self.repo.goal(parent_id)
+                native['parent_goal_id'] = parent_id
+            result = self.goals.update_goal(goal_id, self.user_id, native)
+            if 'closed' in values:
+                operation = self.goals.close_goal if patch.closed else self.goals.reopen_goal
+                result = operation(goal_id, self.user_id)
+            if 'archived' in values:
+                operation = self.goals.archive_goal if patch.archived else self.goals.unarchive_goal
+                result = operation(goal_id, self.user_id)
+            return result.model_dump(mode='json')
 
     def update_task(self, task_id, **changes):
         patch = TaskPatch.model_validate(changes)

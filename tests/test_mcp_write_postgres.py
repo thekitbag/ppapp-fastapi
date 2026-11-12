@@ -85,3 +85,36 @@ def test_commit_revalidates_a_preview_after_database_changes(pg_sessions):
         result=MCPWriteService(db,'a').bulk_create(**week_batch(),dry_run=False)
         assert not result['valid'] and not result['committed']
     assert count_rows(pg_sessions)==(0,1,0,0)
+
+
+def test_goal_update_locks_target_and_rolls_back_lifecycle(pg_sessions, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+    from app.services.goal import GoalService
+    with pg_sessions() as db:
+        service = MCPWriteService(db, 'a')
+        result = service.bulk_create(**week_batch(), dry_run=False)
+        assert result['committed']
+        goal_id = service.read.resolve_goal('Q2')
+        original = GoalService.update_goal
+        def observed(self, target_id, user_id, changes):
+            with pg_sessions() as other:
+                with pytest.raises(OperationalError) as error:
+                    other.query(Goal).filter(Goal.id == target_id).with_for_update(nowait=True).one()
+                assert error.value.orig.pgcode == '55P03'
+            return original(self, target_id, user_id, changes)
+        monkeypatch.setattr(GoalService, 'update_goal', observed)
+        updated = service.update_goal('Q2', closed=True, archived=True)
+        assert updated['is_closed'] and updated['is_archived']
+        service.update_goal('Q2', closed=False, archived=False)
+        weekly_id = service.read.resolve_goal('W2')
+        service.update_goal('W2', closed=False)
+        original_title = db.get(Goal, goal_id).title
+        def fail(*args):
+            raise RuntimeError('after lifecycle changes')
+        monkeypatch.setattr(service.goals, 'archive_goal', fail)
+        with pytest.raises(RuntimeError):
+            service.update_goal('Q2', title='Rolled back', closed=True, archived=True)
+    with pg_sessions() as db:
+        assert db.get(Goal, goal_id).title == original_title
+        assert not db.get(Goal, goal_id).is_closed
+        assert not db.get(Goal, weekly_id).is_closed

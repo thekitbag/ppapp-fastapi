@@ -99,9 +99,15 @@ class GoalPatch(PlanRefFields, WriteInput):
     status: GoalStatus | None = None
     end_date: datetime | None = None
     description: str | None = None
+    parent: str | None = None
+    closed: bool | None = Field(default=None, strict=True)
+    archived: bool | None = Field(default=None, strict=True)
 
     @model_validator(mode='after')
     def required_values(self):
+        for field in ('closed', 'archived'):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f'{field} cannot be null')
         if 'status' in self.model_fields_set and self.status is None:
             raise ValueError('Status cannot be null')
         return self
